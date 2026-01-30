@@ -16,10 +16,16 @@ st_autorefresh(interval=15 * 60 * 1000, key="datarefresh")
 # [로컬 데이터 보존 설정]
 HISTORY_FILE = 'prediction_history.csv'
 
-def save_prediction_history(date_str, pred_val, actual_close):
-    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지"""
-    new_data = pd.DataFrame([[date_str, f"{pred_val:.4%}", f"{actual_close:,.2f}", datetime.now().strftime('%H:%M:%S')]], 
-                            columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
+def save_prediction_history(date_str, pred_val, actual_close, prev_close):
+    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지 (예측 종가 및 전일대비수익률 추가)"""
+    pred_close = prev_close * (1 + pred_val)
+    new_data = pd.DataFrame([[
+        date_str, 
+        f"{pred_val:.4%}", 
+        f"{pred_close:,.2f}", 
+        f"{actual_close:,.2f}", 
+        datetime.now().strftime('%H:%M:%S')
+    ]], columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
     
     if os.path.exists(HISTORY_FILE):
         try:
@@ -38,8 +44,8 @@ def load_prediction_history():
         try:
             return pd.read_csv(HISTORY_FILE)
         except:
-            return pd.DataFrame(columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
-    return pd.DataFrame(columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
+            return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
+    return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
 
 # [폰트 설정]
 @st.cache_resource
@@ -105,11 +111,9 @@ try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 요약 가이드 섹션 (3컬럼 구조 복원)
     c1, c2, c3 = st.columns([1.1, 1.1, 1.3])
     
     with c1:
-        # 단기 예측 로직
         current_data = df.tail(3).mean()
         mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
         current_scaled = (current_data[contribution_pct.index] - mu) / std
@@ -119,9 +123,8 @@ try:
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
-        # 히스토리 저장
         today_str = datetime.now().strftime('%Y-%m-%d')
-        save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1])
+        save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1], prev_val_level)
         
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
         st.markdown(f"""
@@ -136,8 +139,7 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
-        # [이동] 예측 히스토리를 KOSPI 기대 수익률 밑으로 배치
-        st.write("") # 간격
+        st.write("") 
         history_df = load_prediction_history()
         if not history_df.empty:
             st.markdown(f"""
@@ -148,7 +150,6 @@ try:
             """, unsafe_allow_html=True)
 
     with c2:
-        # [복원] 중기 예측 로직 (최근 20거래일 추세)
         mid_term_df = df.tail(20).mean()
         mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
         mid_scaled['SOX_SP500'] = mid_scaled['SOX_lag1'] * mid_scaled['SP500']
@@ -181,7 +182,6 @@ try:
 
     st.divider()
 
-    # 하단 그래프 영역 (기존 유지)
     fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     plt.subplots_adjust(hspace=0.4)
     config = [
@@ -200,16 +200,27 @@ try:
         plot_data = df[col].tail(100)
         ma = df[col].rolling(window=250).mean().iloc[-1]
         std = df[col].rolling(window=250).std().iloc[-1]
+        
         if col == 'Exchange': threshold = ma + (1.5 * std)
         elif col in ['VIX', 'Yield_Spread']: threshold = float(th_label)
         elif col in ['US10Y']: threshold = ma + std
         else: threshold = ma - std
+        
         ax.plot(plot_data, color='#34495e', lw=2.5)
         ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
+        
         ax.xaxis.set_major_formatter(plt.FuncFormatter(custom_date_formatter))
         ax.xaxis.set_major_locator(mdates.MonthLocator())
+        
         ax.set_title(title, fontproperties=fprop, fontsize=16, fontweight='bold', pad=10)
-        ax.set_xlabel(f"{warn_text}", fontproperties=fprop, fontsize=11, color='#c0392b')
+        ax.text(plot_data.index[0], threshold, f"근거: {th_label}", 
+                fontproperties=fprop, color='#e74c3c', va='bottom', fontsize=10, backgroundcolor='#ffffff')
+
+        # [복원] 전문 진단 설명 (위험선 대비 거리 및 판단 내용)
+        safe_th = threshold if threshold != 0 else 1
+        dist = abs(plot_data.iloc[-1] - threshold) / abs(safe_th)
+        ax.set_xlabel(f"위험선 대비 거리: {dist:.1%} | {warn_text}", fontproperties=fprop, fontsize=11, color='#c0392b')
+        
         for label in (ax.get_xticklabels() + ax.get_yticklabels()):
             label.set_fontproperties(fprop)
 
