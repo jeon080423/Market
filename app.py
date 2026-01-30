@@ -109,7 +109,8 @@ def get_analysis(df):
     
     abs_coeffs = np.abs(model.params.drop(['const', 'SOX_SP500']))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
-    return model, contribution, X_scaled.columns.tolist()
+    # 평균과 표준편차를 반환하여 예측 시 동일하게 정규화하도록 함
+    return model, contribution, X.mean(), X.std()
 
 def custom_date_formatter(x, pos):
     dt = mdates.num2date(x)
@@ -117,39 +118,40 @@ def custom_date_formatter(x, pos):
 
 try:
     df = load_expert_data()
-    model, contribution_pct, model_features = get_analysis(df)
+    # 모델 학습 및 통계 정보 추출
+    model, contribution_pct, train_mean, train_std = get_analysis(df)
     
     # --- 1. 상단 AI 마켓 브리핑 및 리스크 가이드 ---
     st.title("🏛️ KOSPI 인텔리전스 진단 시스템 v3.0")
     
-    # 예측 데이터 준비 로직 (에러 해결 핵심: 순서 맞춤)
-    current_data = df.tail(3).mean()
-    mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
-    current_scaled = (current_data[contribution_pct.index] - mu) / std
+    # 예측을 위한 데이터 정규화 및 데이터프레임 구성 (에러 해결 핵심)
+    features_list = contribution_pct.index.tolist()
     
-    # 학습에 사용된 컬럼 순서대로 예측용 데이터 구성
-    pred_data_row = {f: current_scaled[f] for f in contribution_pct.index}
-    pred_data_row['SOX_SP500'] = pred_data_row['SOX_lag1'] * pred_data_row['SP500']
-    
-    # predict()에 전달할 최종 리스트 (상수항 1 + 지표 순서 준수)
-    final_pred_input = [1] + [pred_data_row[col] for col in model_features]
-    
-    pred_val_level = model.predict(final_pred_input)[0]
+    def predict_return(target_df):
+        # 1. 원본 지표 수준 추출 및 정규화
+        level_data = target_df[features_list]
+        scaled_data = (level_data - train_mean) / train_std
+        
+        # 2. 상호작용항 추가
+        scaled_data['SOX_SP500'] = scaled_data['SOX_lag1'] * scaled_data['SP500']
+        
+        # 3. 상수항 추가 및 데이터프레임 순서 정렬
+        pred_df = sm.add_constant(scaled_data, has_constant='add')
+        
+        # 4. 모델 예측
+        return model.predict(pred_df).iloc[-1]
+
+    # 단기 예측 (최근 3일 평균 수준 기반)
+    current_pred_level = predict_return(df.tail(3).mean().to_frame().T)
     prev_val_level = df['KOSPI'].iloc[-2]
-    pred_val = (pred_val_level - prev_val_level) / prev_val_level
+    pred_val = (current_pred_level - prev_val_level) / prev_val_level
     
-    # 중기 예측
-    mid_term_df = df.tail(20).mean()
-    mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
-    mid_data_row = {f: mid_scaled[f] for f in contribution_pct.index}
-    mid_data_row['SOX_SP500'] = mid_data_row['SOX_lag1'] * mid_data_row['SP500']
-    final_mid_input = [1] + [mid_data_row[col] for col in model_features]
-    
-    mid_pred_level = model.predict(final_mid_input)[0]
+    # 중기 예측 (최근 20거래일 평균 수준 기반)
+    mid_pred_level = predict_return(df.tail(20).mean().to_frame().T)
     mid_start_level = df['KOSPI'].tail(20).iloc[0]
     mid_pred_val = (mid_pred_level - mid_start_level) / mid_start_level
 
-    # 신뢰도 및 AI 요약
+    # 로컬 히스토리 기반 신뢰도 계산
     history_df = load_prediction_history()
     if not history_df.empty:
         history_df['오차수치'] = pd.to_numeric(history_df['예측 오차'].str.replace(',', ''), errors='coerce').abs()
