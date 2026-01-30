@@ -6,6 +6,7 @@ import yfinance as yf
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.dates as mdates  # 날짜 포맷 최적화를 위해 추가
 from datetime import datetime, timedelta
 import os
 
@@ -22,7 +23,7 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 시스템 v2.1", layout="wide")
+st.set_page_config(page_title="KOSPI 정밀 진단 시스템 v2.2", layout="wide")
 
 # [데이터 수집 및 보정] 
 @st.cache_data(ttl=300)
@@ -58,7 +59,7 @@ def load_expert_data():
 
     df = df.rename(columns=tickers).ffill().interpolate(method='linear')
     df['SOX_lag1'] = df['SOX'].shift(1)
-    df['Yield_Spread'] = (df['US10Y'] - df['US2Y']) # 절대값 유지
+    df['Yield_Spread'] = (df['US10Y'] - df['US2Y'])
     return df.dropna().tail(300)
 
 # [분석] 
@@ -69,20 +70,18 @@ def get_analysis(df):
     X = (returns[features] - returns[features].mean()) / returns[features].std()
     X = sm.add_constant(X)
     model = sm.OLS(y, X).fit()
-    
-    # 기여도 산출 (표준화 계수 절대값 기반)
     abs_coeffs = np.abs(model.params.drop('const'))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
     return model, contribution
 
 # [UI 구현]
-st.title("🏛️ KOSPI 8대 지표 정밀 진단 시스템 v2.1")
+st.title("🏛️ KOSPI 8대 지표 정밀 진단 시스템 v2.2")
 
 try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 예측 섹션
+    # 상단 요약 섹션
     c1, c2 = st.columns([1, 1.5])
     with c1:
         current_chg = (df.iloc[-1] / df.iloc[-2] - 1)
@@ -93,33 +92,22 @@ try:
                 <h3 style="margin-top: 0; color: #555;">종합 투자 예측 지수</h3>
                 <h1 style="color: {color}; font-size: 60px; margin: 10px 0;">{pred_val:+.2%}</h1>
                 <p style="color: #666; line-height: 1.6;">
-                    <b>💡 수치 해석:</b> 이 수치는 8대 지표의 실시간 변화를 종합했을 때 예상되는 <b>KOSPI의 일일 기대 수익률</b>입니다.<br>
-                    - <b>(+) 양수:</b> 글로벌 지표가 상승 압력을 가하고 있음<br>
-                    - <b>(-) 음수:</b> 글로벌 지표가 하락 압력을 가하고 있음
+                    <b>💡 수치 해석:</b> 글로벌 지표 변화를 종합한 <b>KOSPI 일일 기대 수익률</b>입니다.
                 </p>
             </div>
         """, unsafe_allow_html=True)
         
     with c2:
         st.subheader("📊 지표별 KOSPI 영향력 비중 (Relative Weight)")
-        # 가로 표로 제시
         cont_df = pd.DataFrame(contribution_pct).T
         cont_df.index = ['비중 (%)']
         st.table(cont_df.style.format("{:.1f}%"))
-        
-        with st.expander("📝 비중 산출 방법 안내"):
-            st.write("""
-                본 비중은 **다중 회귀 분석(Multiple Regression)**의 **표준화 계수(Standardized Beta)**를 기반으로 합니다.
-                1. 각 지표의 단위(원, 포인트, %)를 통일하기 위해 Z-score 표준화를 거칩니다.
-                2. KOSPI 수익률에 미치는 독립 변수들의 회귀 계수 절대값을 모두 합산합니다.
-                3. 전체 합산 대비 개별 지표의 계수 크기를 백분율(%)로 환산하여, 어떤 지표가 시장 변동을 주도하는지 보여줍니다.
-            """)
 
     st.divider()
 
-    # 하단 8대 지표 상세 그래프 (2행 4열)
+    # 하단 그래프 (2행 4열)
     fig, axes = plt.subplots(2, 4, figsize=(24, 16))
-    plt.subplots_adjust(hspace=0.75, wspace=0.3)
+    plt.subplots_adjust(hspace=0.8, wspace=0.3)
 
     config = [
         ('KOSPI', '1. KOSPI 본체', 'MA250 - 1σ', '장기 추세 붕괴'),
@@ -137,27 +125,28 @@ try:
         plot_data = df[col].tail(60)
         curr_val = plot_data.iloc[-1]
         
-        # 임계값 계산 및 근거 텍스트
+        # 임계값 계산
         ma = df[col].rolling(window=250).mean().iloc[-1]
         std = df[col].rolling(window=250).std().iloc[-1]
-        
         if col == 'Exchange': threshold = ma + (1.5 * std)
         elif col in ['VIX', 'Yield_Spread']: threshold = float(th_label)
         elif col in ['US10Y']: threshold = ma + std
         else: threshold = ma - std
 
-        # 진단 및 거리 계산 (inf 오류 방지를 위해 분모 체크)
         safe_threshold = threshold if threshold != 0 else 1
         dist = abs(curr_val - threshold) / safe_threshold
         direction = "위로 올라갈 경우" if col in ['Exchange', 'VIX', 'US10Y'] else "아래로 내려갈 경우"
-        
-        analysis_text = f"위험선과 약 {dist:.1%} 거리로 유지 중입니다.\n지수가 빨간선 {direction}\n[{warn_text}] 상태로 판단합니다."
+        analysis_text = f"위험선과 약 {dist:.1%} 거리 유지 중\n빨간선 {direction}\n[{warn_text}] 판단"
 
         # 시각화
         ax.plot(plot_data, color='#34495e', lw=3)
         ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
         
-        # 위험선 근거를 선 근처에 텍스트로 추가
+        # 날짜 축 가독성 개선 (핵심 수정 부분)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%y/%m/%d')) # 연도(2자리)/월/일 축약
+        ax.xaxis.set_major_locator(mdates.MaxNLocator(5)) # 눈금 개수를 최대 5개로 제한
+        plt.setp(ax.get_xticklabels(), rotation=15, ha='right') # 15도 회전하여 겹침 방지
+
         ax.text(plot_data.index[5], threshold, f" 산출근거: {th_label}", 
                 fontproperties=fprop, fontsize=10, color='#e74c3c', 
                 va='bottom', backgroundcolor='#ffffff')
@@ -165,7 +154,7 @@ try:
         ax.set_title(title, fontproperties=fprop, fontsize=18, fontweight='bold', pad=15)
         
         # 하단 설명 박스
-        ax.text(0.5, -0.38, analysis_text, transform=ax.transAxes, 
+        ax.text(0.5, -0.4, analysis_text, transform=ax.transAxes, 
                 ha='center', va='center', fontproperties=fprop, fontsize=12,
                 bbox=dict(boxstyle="round,pad=0.6", fc="#fdfefe", ec="#bdc3c7", lw=1))
         
