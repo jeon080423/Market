@@ -50,54 +50,41 @@ def load_data():
     us_10y = yf.download("^TNX", start=start_date, end=end_date)
     us_2y = yf.download("^IRX", start=start_date, end=end_date)
     vix = yf.download("^VIX", start=start_date, end=end_date)
-    copper = yf.download("HG=F", start=start_date, end=0) # 수정: start=start_date만 유지
-    # yfinance 패키지의 최신 버전 대응을 위해 load_data 내부를 원형대로 유지하되 copper만 재설정
     copper = yf.download("HG=F", start=start_date, end=end_date)
-    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper
+    # 물동량 지표 (Breakwave Dry Bulk Shipping ETF - BDI 지수 대용)
+    freight = yf.download("BDRY", start=start_date, end=end_date)
+    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight
 
-# 6. 리포트 및 뉴스 함수
+# 6. 리포트 및 뉴스 함수 (네이버 증권 기반)
 def get_analyst_reports():
-    # 네이버 증권 리서치 종목분석 (가장 범용적인 경로)
     url = "https://finance.naver.com/research/company_list.naver"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
-        # 네이버 금융은 EUC-KR 인코딩을 사용하므로 이를 명시적으로 처리
         res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         res.encoding = 'euc-kr' 
         soup = BeautifulSoup(res.text, 'html.parser')
         reports = []
         
-        # 실제 데이터가 담긴 테이블의 tr 요소들 추출
-        # 네이버 금융의 리서치 테이블 구조: table.type_1
         table = soup.select_one("table.type_1")
         if not table: return []
         
         rows = table.select("tr")
         for row in rows:
             if len(reports) >= 10: break
-            
-            # td.alpha 클래스에 종목명이 위치함
             stock_td = row.select_one("td.alpha")
             if stock_td:
                 cells = row.select("td")
                 if len(cells) >= 3:
                     stock_name = cells[0].get_text().strip()
-                    # 제목은 보통 두 번째 td의 a 태그에 있음
                     title_tag = cells[1].select_one("a")
                     title_text = title_tag.get_text().strip() if title_tag else cells[1].get_text().strip()
                     source = cells[2].get_text().strip()
-                    
-                    reports.append({
-                        "제목": title_text,
-                        "종목": stock_name,
-                        "출처": source
-                    })
+                    reports.append({"제목": title_text, "종목": stock_name, "출처": source})
         return reports
     except Exception as e:
-        # 실패 시 로그를 남기지 않고 빈 리스트 반환 (안정성)
         return []
 
 @st.cache_data(ttl=600)
@@ -110,7 +97,7 @@ def get_market_news():
 
 try:
     with st.spinner('최적 비중 기반 리스크 분석 중...'):
-        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data = load_data()
+        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data = load_data()
 
     def get_clean_series(df):
         if df is None or df.empty: return pd.Series()
@@ -119,7 +106,7 @@ try:
 
     ks_s, sp_s, nk_s = get_clean_series(kospi), get_clean_series(sp500), get_clean_series(nikkei)
     fx_s, b10_s, b2_s, vx_s = get_clean_series(fx), get_clean_series(bond10), get_clean_series(bond2), get_clean_series(vix_data)
-    cp_s = get_clean_series(copper_data)
+    cp_s, fr_s = get_clean_series(copper_data), get_clean_series(freight_data)
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -171,7 +158,7 @@ try:
         else:
             st.info("현재 데이터를 불러오는 중이거나 최신 보고서가 없습니다. (평일 장중에 업데이트됩니다.)")
 
-    # 9. 지표별 상세 분석 (3열 배치)
+    # 9. 지표별 상세 분석
     st.markdown("---")
     st.subheader("🔍 실물 경제 및 주요 상관관계 지표 분석")
     
@@ -190,7 +177,6 @@ try:
         st.plotly_chart(create_chart(sp_s, "미국 S&P 500 (영향력 60%)", sp_s.last('365D').mean()*0.9, 'below', "평균 대비 -10% 하락 시"), use_container_width=True)
         st.info("**미국 지수**: KOSPI와 가장 강한 정(+)의 상관성을 보입니다.")
     with r1_c2:
-        # 최근 1년 평균의 +2%를 유동적 임계값으로 설정
         fx_threshold = round(float(fx_s.last('365D').mean() * 1.02), 1)
         st.plotly_chart(create_chart(fx_s, "원/달러 환율 추이", fx_threshold, 'above', f"{fx_threshold}원 돌파 시 위험"), use_container_width=True)
         st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_threshold}원) 상회 시 외국인 자본 유출 압력이 심화됩니다.")
@@ -215,6 +201,14 @@ try:
     with r2_c3:
         st.plotly_chart(create_chart(vx_s, "VIX 공포 지수", 30, 'above', "30 돌파 시 패닉"), use_container_width=True)
         st.info("**VIX 지수**: 시장 변동성을 나타내며, 지수 급등은 투자 심리 악화와 투매 가능성을 시사합니다.")
+
+    st.markdown("---")
+    r3_c1, r3_c2, r3_c3 = st.columns(3)
+    with r3_c1:
+        # 최근 1년 평균 대비 -20% 하락 시를 위험 구간으로 설정
+        fr_threshold = round(float(fr_s.last('365D').mean() * 0.8), 2)
+        st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_threshold, 'below', "물동량 급감 시 위험"), use_container_width=True)
+        st.info("**물동량**: 건화물선 운임 지수(BDI) 관련 ETF로, 지수 하락은 글로벌 교역량 감소와 경기 둔화를 의미합니다.")
 
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
