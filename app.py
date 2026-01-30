@@ -17,22 +17,31 @@ st_autorefresh(interval=15 * 60 * 1000, key="datarefresh")
 HISTORY_FILE = 'prediction_history.csv'
 
 def save_prediction_history(date_str, pred_val, actual_close, prev_close):
-    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지 (예측 종가 및 전일대비수익률 추가)"""
+    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지 (예측 종가, 실제 차이 비교 추가)"""
     pred_close = prev_close * (1 + pred_val)
+    diff = actual_close - pred_close # 실제종가 - 예측종가 (오차)
+    
     new_data = pd.DataFrame([[
         date_str, 
         f"{pred_val:.4%}", 
         f"{pred_close:,.2f}", 
-        f"{actual_close:,.2f}", 
+        f"{actual_close:,.2f}",
+        f"{diff:,.2f}", # 종가 차이 추가
         datetime.now().strftime('%H:%M:%S')
-    ]], columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
+    ]], columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
     
     if os.path.exists(HISTORY_FILE):
         try:
             history_df = pd.read_csv(HISTORY_FILE)
             if date_str not in history_df["날짜"].values:
-                history_df = pd.concat([history_df, new_data], ignore_index=True)
-                history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
+                # 장 마감 시간(15:30) 이후이거나 데이터가 아직 없는 경우에만 누적
+                current_time = datetime.now().time()
+                market_close = datetime.strptime("15:30", "%H:%M").time()
+                
+                # 장 마감 후에만 신규 데이터를 최종 확정하여 저장
+                if current_time >= market_close:
+                    history_df = pd.concat([history_df, new_data], ignore_index=True)
+                    history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
         except:
             new_data.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
     else:
@@ -44,8 +53,8 @@ def load_prediction_history():
         try:
             return pd.read_csv(HISTORY_FILE)
         except:
-            return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
-    return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "기록시각"])
+            return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
+    return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
 
 # [폰트 설정]
 @st.cache_resource
@@ -111,9 +120,11 @@ try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
+    # 상단 요약 가이드 섹션 (3컬럼 구조 복원)
     c1, c2, c3 = st.columns([1.1, 1.1, 1.3])
     
     with c1:
+        # 단기 예측 로직
         current_data = df.tail(3).mean()
         mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
         current_scaled = (current_data[contribution_pct.index] - mu) / std
@@ -123,6 +134,7 @@ try:
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
+        # 히스토리 저장
         today_str = datetime.now().strftime('%Y-%m-%d')
         save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1], prev_val_level)
         
@@ -150,6 +162,7 @@ try:
             """, unsafe_allow_html=True)
 
     with c2:
+        # [복원] 중기 예측 로직 (최근 20거래일 추세)
         mid_term_df = df.tail(20).mean()
         mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
         mid_scaled['SOX_SP500'] = mid_scaled['SOX_lag1'] * mid_scaled['SP500']
