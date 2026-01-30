@@ -53,7 +53,6 @@ try:
         if isinstance(df.columns, pd.MultiIndex): return df['Close'].iloc[:, 0]
         return df['Close']
 
-    # 데이터 정제 및 KOSPI 날짜 기준 동기화
     ks_s = get_clean_series(kospi)
     sp_s = get_clean_series(sp500).reindex(ks_s.index).ffill()
     nk_s = get_clean_series(nikkei).reindex(ks_s.index).ffill()
@@ -67,7 +66,6 @@ try:
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
 
-    # 가중치 자동 산출 로직
     def get_hist_score_val(series, current_idx, inverse=False):
         try:
             sub = series.loc[:current_idx].iloc[-252:]
@@ -96,26 +94,27 @@ try:
 
     sem_w = calculate_sem_weights(ks_s, sp_s, nk_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
-    # 5. 사이드바 - 가중치 및 복귀 버튼
+    # 5. 사이드바 - 가중치 최적화 및 복귀 로직 수정
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     
-    # 세션 상태 초기화 (복귀 기능을 위함)
-    if 'w_m' not in st.session_state: st.session_state.w_m = float(round(sem_w[0], 2))
-    if 'w_g' not in st.session_state: st.session_state.w_g = float(round(sem_w[1], 2))
-    if 'w_f' not in st.session_state: st.session_state.w_f = float(round(sem_w[2], 2))
-    if 'w_t' not in st.session_state: st.session_state.w_t = float(round(sem_w[3], 2))
+    # 세션 상태 초기화 (위젯의 key값에 직접 연결)
+    if 'slider_m' not in st.session_state: st.session_state.slider_m = float(round(sem_w[0], 2))
+    if 'slider_g' not in st.session_state: st.session_state.slider_g = float(round(sem_w[1], 2))
+    if 'slider_f' not in st.session_state: st.session_state.slider_f = float(round(sem_w[2], 2))
+    if 'slider_t' not in st.session_state: st.session_state.slider_t = float(round(sem_w[3], 2))
 
-    w_macro = st.sidebar.slider("매크로 (환율/금리/물동량)", 0.0, 1.0, st.session_state.w_m, 0.01, key="slider_m")
-    w_global = st.sidebar.slider("글로벌 시장 위험 (미국/일본)", 0.0, 1.0, st.session_state.w_g, 0.01, key="slider_g")
-    w_fear = st.sidebar.slider("시장 공포 (VIX 지수)", 0.0, 1.0, st.session_state.w_f, 0.01, key="slider_f")
-    w_tech = st.sidebar.slider("국내 기술적 지표 (이동평균선)", 0.0, 1.0, st.session_state.w_t, 0.01, key="slider_t")
+    # 슬라이더 배치 (value 대신 st.session_state를 직접 참조하지 않고 key만 지정해도 Streamlit이 연결함)
+    w_macro = st.sidebar.slider("매크로 (환율/금리/물동량)", 0.0, 1.0, key="slider_m", step=0.01)
+    w_global = st.sidebar.slider("글로벌 시장 위험 (미국/일본)", 0.0, 1.0, key="slider_g", step=0.01)
+    w_fear = st.sidebar.slider("시장 공포 (VIX 지수)", 0.0, 1.0, key="slider_f", step=0.01)
+    w_tech = st.sidebar.slider("국내 기술적 지표 (이동평균선)", 0.0, 1.0, key="slider_t", step=0.01)
 
-    # 복귀 버튼 로직
+    # 복귀 버튼 로직: session_state의 key 값을 직접 업데이트
     if st.sidebar.button("🔄 계산된 원래 가중치로 복귀"):
-        st.session_state.w_m = float(round(sem_w[0], 2))
-        st.session_state.w_g = float(round(sem_w[1], 2))
-        st.session_state.w_f = float(round(sem_w[2], 2))
-        st.session_state.w_t = float(round(sem_w[3], 2))
+        st.session_state.slider_m = float(round(sem_w[0], 2))
+        st.session_state.slider_g = float(round(sem_w[1], 2))
+        st.session_state.slider_f = float(round(sem_w[2], 2))
+        st.session_state.slider_t = float(round(sem_w[3], 2))
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -258,4 +257,4 @@ try:
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 가중치 초기화 및 SEM 엔진 가동 중")
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | SEM 가중치 분석 시스템 가동 중")
