@@ -7,31 +7,26 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from datetime import datetime, timedelta
 import os
-import subprocess
 
-# [폰트 설정] 한글 깨짐 방지를 위한 나눔 폰트 강제 설치
+# [폰트 설정] 로컬 폰트 파일을 직접 로드하는 방식 (가장 확실함)
 @st.cache_resource
-def install_korean_font():
-    # Streamlit Cloud(Linux) 환경에서 나눔 폰트 설치
-    try:
-        # 시스템에 나눔 폰트 설치
-        subprocess.run(['sudo', 'apt-get', 'update'], check=False)
-        subprocess.run(['sudo', 'apt-get', 'install', '-y', 'fonts-nanum'], check=False)
-        
-        # Matplotlib 폰트 경로 설정 (설치된 나눔고딕 경로)
-        font_path = '/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
-        if os.path.exists(font_path):
-            font_prop = fm.FontProperties(fname=font_path)
-            plt.rc('font', family=font_prop.get_name())
-            # 마이너스 기호 깨짐 방지
-            plt.rcParams['axes.unicode_minus'] = False
-            return font_prop.get_name()
-    except Exception as e:
-        st.warning(f"폰트 설치 시도 중 알림: {e}")
-    return None
+def set_korean_font():
+    # 저장소에 업로드한 NanumGothic.ttf 파일을 직접 로드
+    font_file = 'NanumGothic.ttf' 
+    
+    if os.path.exists(font_file):
+        # 폰트 등록
+        font_name = fm.FontProperties(fname=font_file).get_name()
+        plt.rc('font', family=font_name)
+        plt.rcParams['axes.unicode_minus'] = False # 마이너스 깨짐 방지
+        return font_name
+    else:
+        # 파일이 없을 경우 대비 (Streamlit Cloud의 다른 경로 탐색)
+        st.warning("NanumGothic.ttf 파일이 GitHub 저장소에 없습니다. 영문으로 표시됩니다.")
+        return None
 
 # 폰트 적용
-font_name = install_korean_font()
+font_name = set_korean_font()
 
 # [설정] 페이지 설정
 st.set_page_config(page_title="KOSPI 위험 지수 분석", layout="wide")
@@ -53,7 +48,7 @@ def load_market_data():
         '000001.SS': 'China'
     }
     
-    # 데이터 다운로드 (yfinance 사용)
+    # 데이터 다운로드
     data = yf.download(list(tickers.keys()), start=start_date, end=end_date)['Close']
     data = data.rename(columns=tickers)
     
@@ -97,10 +92,8 @@ try:
 
     st.divider()
 
-    # 2. 위험 모니터링 그래프
+    # 2. 위험 모니터링 그래프 (한글 폰트 강제 적용 확인)
     st.subheader("⚠️ 주요 지표별 위험 임계점")
-    
-    # 폰트가 정상 로드되었을 때만 적용
     fig, axes = plt.subplots(2, 2, figsize=(10, 6))
     
     # 환율
@@ -130,4 +123,4 @@ try:
     st.info("**분석 가이드:** 환율 1350원과 VIX 20은 지수의 급격한 하락을 유도하는 임계점입니다. SOX(반도체) 지수는 익일 국내 증시의 방향성을 미리 알려주는 핵심 지표입니다.")
 
 except Exception as e:
-    st.error(f"데이터 분석 중 오류가 발생했습니다: {e}")
+    st.error(f"데이터 분석 중 오류 발생: {e}")
