@@ -44,11 +44,12 @@ def load_data():
     vix = yf.download("^VIX", start=start_date, end=end_date)
     copper = yf.download("HG=F", start=start_date, end=end_date)
     freight = yf.download("BDRY", start=start_date, end=end_date)
-    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight
+    wti = yf.download("CL=F", start=start_date, end=end_date) # WTI 추가
+    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight, wti
 
 try:
     with st.spinner('시장 데이터 분석 및 가중치 최적화 중...'):
-        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data = load_data()
+        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data, wti_data = load_data()
 
     def get_clean_series(df):
         if df is None or df.empty: return pd.Series()
@@ -65,6 +66,7 @@ try:
     vx_s = get_clean_series(vix_data).reindex(ks_s.index).ffill()
     cp_s = get_clean_series(copper_data).reindex(ks_s.index).ffill()
     fr_s = get_clean_series(freight_data).reindex(ks_s.index).ffill()
+    wt_s = get_clean_series(wti_data).reindex(ks_s.index).ffill() # WTI 시리즈 추가
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -265,6 +267,15 @@ try:
         fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
         st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_th, f"{fr_th} 하향 돌파 시 위험"), use_container_width=True)
         st.info(f"**물동량**: 지지선({fr_th}) 하향 돌파 시 글로벌 경기 수축 신호로 간주합니다.")
+    # --- 추가된 코드 섹션 ---
+    with r3_c2:
+        wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
+        st.plotly_chart(create_chart(wt_s, "에너지 가격 (WTI 원유)", wt_th, f"{wt_th} 돌파 시 비용 압력"), use_container_width=True)
+        st.info(f"**유가**: 유가 급등은 생산 비용 상승과 인플레이션 압박으로 이어져 시장에 부담을 줍니다.")
+    with r3_c3:
+        # 비어있는 세 번째 컬럼은 향후 확장용으로 남겨두거나 정보를 배치할 수 있습니다.
+        st.write("") 
+    # -----------------------
 
     # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석 (새로 추가)
     st.markdown("---")
