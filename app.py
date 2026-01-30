@@ -104,6 +104,16 @@ try:
     ks_s, sp_s, nk_s = get_clean_series(kospi), get_clean_series(sp500), get_clean_series(nikkei)
     fx_s, b10_s, b2_s, vx_s = get_clean_series(fx), get_clean_series(bond10), get_clean_series(bond2), get_clean_series(vix_data)
     cp_s, fr_s = get_clean_series(copper_data), get_clean_series(freight_data)
+
+    # 에러 수정: 국가별 공휴일로 인한 결측치를 KOSPI 날짜 기준으로 정렬 및 채우기
+    sp_s = sp_s.reindex(ks_s.index).ffill()
+    nk_s = nk_s.reindex(ks_s.index).ffill()
+    fx_s = fx_s.reindex(ks_s.index).ffill()
+    b10_s = b10_s.reindex(ks_s.index).ffill()
+    b2_s = b2_s.reindex(ks_s.index).ffill()
+    vx_s = vx_s.reindex(ks_s.index).ffill()
+    cp_s = cp_s.reindex(ks_s.index).ffill()
+    fr_s = fr_s.reindex(ks_s.index).ffill()
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -170,12 +180,19 @@ try:
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
     
+    # 백테스팅 설명 추가
+    st.info("""
+    **백테스팅(Backtesting)이란?** 과거 데이터를 사용하여 모델이나 투자 전략의 유효성을 검증하는 과정입니다. 
+    여기서는 지난 1년간의 데이터를 바탕으로 매일의 '시장 위험 지수'를 재산출하여, 
+    실제 KOSPI 지수 하락 시점에 위험 지수가 선행하여 상승했는지 확인합니다.
+    """)
+    
     with st.spinner('역사적 데이터 시뮬레이션 중...'):
-        # 성능을 위해 최근 250거래일(약 1년) 데이터 추출
         lookback = 252
         dates = ks_s.index[-lookback:]
         
         def get_hist_score(series, current_idx, inverse=False):
+            # 에러 수정: loc[:current_idx]를 사용하여 특정 날짜까지의 데이터만 슬라이싱
             sub = series.loc[:current_idx].iloc[-252:]
             if len(sub) < 10: return 50.0
             min_v, max_v = sub.min(), sub.max()
@@ -183,7 +200,6 @@ try:
             if max_v == min_v: return 0.0
             return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
 
-        # 백테스트 계산
         hist_risks = []
         for d in dates:
             s_sp = get_hist_score(sp_s, d, True)
@@ -193,6 +209,7 @@ try:
             s_bn = get_hist_score(b10_s, d)
             s_cp = get_hist_score(cp_s, d, True)
             m_score = (s_fx + s_bn + s_cp) / 3
+            # 기술 점수 계산 시 ma20 사용 (ks_s와 ma20의 인덱스는 동일함)
             t_score = max(0, min(100, 100 - (ks_s.loc[d] / ma20.loc[d] - 0.9) * 500))
             f_score = get_hist_score(vx_s, d)
             
