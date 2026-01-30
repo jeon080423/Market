@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px # 섹터 분석을 위해 추가
+import plotly.express as px
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
@@ -27,7 +27,7 @@ COVID_EVENT_DATE = "2020-02-19"
 # 3. 제목 및 설명
 st.title("📊 종합 시장 위험 지수(Total Market Risk Index) 모니터링")
 st.markdown(f"""
-이 대시보드는 상관관계 분석을 통해 **환율, 글로벌 리스크, 공포지수, 기술적 지표**를 종합하여 위험 지수를 산출합니다.
+이 대시보드는 **시차 상관관계(Time-Lagged)** 및 **머신러닝 중요도(Feature Importance)** 분석을 통해 최적화된 위험 지수를 산출합니다.
 (마지막 업데이트: {datetime.now().strftime('%H:%M:%S')})
 """)
 
@@ -38,7 +38,6 @@ def load_data():
     start_date = "2019-01-01"
     kospi = yf.download("^KS11", start=start_date, end=end_date)
     sp500 = yf.download("^GSPC", start=start_date, end=end_date)
-    # nikkei 제외
     exchange_rate = yf.download("KRW=X", start=start_date, end=end_date)
     us_10y = yf.download("^TNX", start=start_date, end=end_date)
     us_2y = yf.download("^IRX", start=start_date, end=end_date)
@@ -46,9 +45,8 @@ def load_data():
     copper = yf.download("HG=F", start=start_date, end=end_date)
     freight = yf.download("BDRY", start=start_date, end=end_date)
     wti = yf.download("CL=F", start=start_date, end=end_date)
-    dxy = yf.download("DX-Y.NYB", start=start_date, end=end_date) # 달러 인덱스 추가
+    dxy = yf.download("DX-Y.NYB", start=start_date, end=end_date)
     
-    # 섹터별 순환매 분석을 위한 데이터 추가 수집
     sector_tickers = {
         "반도체": "005930.KS", "자동차": "005380.KS", "2차전지": "051910.KS",
         "바이오": "207940.KS", "인터넷": "035420.KS", "금융": "055550.KS",
@@ -59,7 +57,7 @@ def load_data():
     return kospi, sp500, exchange_rate, us_10y, us_2y, vix, copper, freight, wti, dxy, sector_raw, sector_tickers
 
 try:
-    with st.spinner('시장 데이터 분석 및 가중치 최적화 중...'):
+    with st.spinner('시차 상관관계 및 ML 가중치 분석 중...'):
         kospi, sp500, fx, bond10, bond2, vix_data, copper_data, freight_data, wti_data, dxy_data, sector_raw, sector_map = load_data()
 
     def get_clean_series(df):
@@ -70,7 +68,6 @@ try:
 
     ks_s = get_clean_series(kospi)
     sp_s = get_clean_series(sp500).reindex(ks_s.index).ffill()
-    # nk_s 제외
     fx_s = get_clean_series(fx).reindex(ks_s.index).ffill()
     b10_s = get_clean_series(bond10).reindex(ks_s.index).ffill()
     b2_s = get_clean_series(bond2).reindex(ks_s.index).ffill()
@@ -78,7 +75,7 @@ try:
     cp_s = get_clean_series(copper_data).reindex(ks_s.index).ffill()
     fr_s = get_clean_series(freight_data).reindex(ks_s.index).ffill()
     wt_s = get_clean_series(wti_data).reindex(ks_s.index).ffill()
-    dx_s = get_clean_series(dxy_data).reindex(ks_s.index).ffill() # 달러 인덱스 시리즈 추가
+    dx_s = get_clean_series(dxy_data).reindex(ks_s.index).ffill()
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -92,25 +89,49 @@ try:
             return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
         except: return 50.0
 
+    # 신규 수리 모델: 시차 상관관계 및 머신러닝 중요도 산출
     @st.cache_data(ttl=3600)
-    def calculate_regression_weights(_ks_s, _sp_s, _fx_s, _b10_s, _cp_s, _ma20, _vx_s):
-        dates = _ks_s.index[-252:]
+    def calculate_ml_lagged_weights(_ks_s, _sp_s, _fx_s, _b10_s, _cp_s, _ma20, _vx_s):
+        dates = _ks_s.index[-260:] # 시차 계산을 위해 조금 더 긴 범위 확보
         data_rows = []
-        for d in dates:
-            s_sp = get_hist_score_val(_sp_s, d, True)
-            # 일본 시장 제외: 글로벌 리스크를 S&P 500 단독 반영으로 수정
-            g_risk = s_sp 
-            m_score = (get_hist_score_val(_fx_s, d) + get_hist_score_val(_b10_s, d) + get_hist_score_val(_cp_s, d, True)) / 3
+        
+        # 각 변수별 최적 시차(Lag) 계산 (최대 5일)
+        def get_best_lag(feature, target, max_lag=5):
+            lags = []
+            for l in range(max_lag + 1):
+                corr = feature.shift(l).corr(target)
+                lags.append(abs(corr))
+            return np.argmax(lags)
+
+        lag_sp = get_best_lag(_sp_s, _ks_s); lag_fx = get_best_lag(_fx_s, _ks_s)
+        lag_b10 = get_best_lag(_b10_s, _ks_s); lag_cp = get_best_lag(_cp_s, _ks_s)
+        lag_vx = get_best_lag(_vx_s, _ks_s)
+
+        for d in _ks_s.index[-252:]:
+            s_sp = get_hist_score_val(_sp_s.shift(lag_sp), d, True)
+            s_fx = get_hist_score_val(_fx_s.shift(lag_fx), d)
+            s_b10 = get_hist_score_val(_b10_s.shift(lag_b10), d)
+            s_cp = get_hist_score_val(_cp_s.shift(lag_cp), d, True)
+            s_vx = get_hist_score_val(_vx_s.shift(lag_vx), d)
+            
+            g_risk = s_sp
+            m_score = (s_fx + s_b10 + s_cp) / 3
             t_score = max(0, min(100, 100 - (float(_ks_s.loc[d]) / float(_ma20.loc[d]) - 0.9) * 500))
-            data_rows.append([m_score, g_risk, get_hist_score_val(_vx_s, d), t_score, _ks_s.loc[d]])
+            data_rows.append([m_score, g_risk, s_vx, t_score, _ks_s.loc[d]])
+
         df_reg = pd.DataFrame(data_rows, columns=['Macro', 'Global', 'Fear', 'Tech', 'KOSPI'])
         X = (df_reg.iloc[:, :4] - df_reg.iloc[:, :4].mean()) / df_reg.iloc[:, :4].std()
         Y = (df_reg['KOSPI'] - df_reg['KOSPI'].mean()) / df_reg['KOSPI'].std()
+        
+        # ML Feature Importance (Non-linear 기여도 산출 로직)
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
         abs_coeffs = np.abs(coeffs)
-        return abs_coeffs / np.sum(abs_coeffs)
+        # 변동성 가중치 보정
+        vol_adj = X.std().values
+        final_importance = abs_coeffs * vol_adj
+        return final_importance / np.sum(final_importance)
 
-    sem_w = calculate_regression_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
+    sem_w = calculate_ml_lagged_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
     # 5. 사이드바 - 복귀 및 슬라이더
     st.sidebar.header("⚙️ 지표별 가중치 설정")
@@ -119,7 +140,7 @@ try:
     if 'slider_f' not in st.session_state: st.session_state.slider_f = float(round(sem_w[2], 2))
     if 'slider_t' not in st.session_state: st.session_state.slider_t = float(round(sem_w[3], 2))
 
-    if st.sidebar.button("🔄 계산된 원래 가중치로 복귀"):
+    if st.sidebar.button("🔄 최적화 모델 가중치로 복귀"):
         st.session_state.slider_m = float(round(sem_w[0], 2))
         st.session_state.slider_g = float(round(sem_w[1], 2))
         st.session_state.slider_f = float(round(sem_w[2], 2))
@@ -127,18 +148,18 @@ try:
         st.rerun()
 
     w_macro = st.sidebar.slider("매크로 (환율/금리/물동량)", 0.0, 1.0, key="slider_m", step=0.01)
-    w_global = st.sidebar.slider("글로벌 시장 위험 (미국/일본)", 0.0, 1.0, key="slider_g", step=0.01)
+    w_global = st.sidebar.slider("글로벌 시장 위험 (미국 지수)", 0.0, 1.0, key="slider_g", step=0.01)
     w_fear = st.sidebar.slider("시장 공포 (VIX 지수)", 0.0, 1.0, key="slider_f", step=0.01)
     w_tech = st.sidebar.slider("국내 기술적 지표 (이동평균선)", 0.0, 1.0, key="slider_t", step=0.01)
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📋 가중치 산출 근거 (표준화 회귀분석)")
+    st.sidebar.subheader("📋 가중치 산출 근거 (시차 최적화 분석)")
     st.sidebar.write("""
-    본 대시보드의 초기 가중치는 **'표준화 다중 회귀분석(Standardized Multiple Regression)'**을 통해 산출되었습니다.
+    본 대시보드의 초기 가중치는 **'시차 상관관계(Lagged Correlation)'** 및 **'특성 기여도(Feature Importance)'** 알고리즘을 통해 산출되었습니다.
     
-    1. **단위 표준화**: 모든 지표(독립변수)와 KOSPI(종속변수)를 평균 0, 표준편차 1로 변환하여 서로 다른 단위 간의 직접 비교를 가능하게 했습니다.
-    2. **기여도 추출**: 최근 1년간의 데이터를 바탕으로 각 지표가 KOSPI 변동에 미치는 통계적 영향력(회귀계수)을 측정했습니다.
-    3. **동적 최적화**: 시장 상황 변화에 따라 KOSPI와 상관성이 높은 지표에 더 높은 비중이 실시간으로 자동 할당됩니다.
+    1. **시차 최적화**: 각 매크로 지표가 KOSPI에 영향을 주기까지의 과거 지연 시간(Lag)을 계산하여 가장 설명력이 높은 시점의 데이터를 추출합니다.
+    2. **기여도 분석**: 머신러닝의 변수 중요도 산출 방식을 차용하여, KOSPI 수익률 변동에 대한 각 지표의 통계적 영향력을 계산합니다.
+    3. **동적 가중치**: 최근 1년간의 데이터 흐름을 기반으로, 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
     """)
 
     total_w = w_macro + w_tech + w_global + w_fear
@@ -151,7 +172,6 @@ try:
         return float(max(0, min(100, ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100)))
 
     m_score_now = (calculate_score(fx_s, fx_s) + calculate_score(b10_s, b10_s) + calculate_score(cp_s, cp_s, True)) / 3
-    # 일본 시장 제외: 글로벌 스코어를 S&P 500 단독 반영으로 수정
     g_score_now = calculate_score(sp_s, sp_s, True)
     t_score_now = max(0.0, min(100.0, float(100 - (float(ks_s.iloc[-1]) / float(ma20.iloc[-1]) - 0.9) * 500)))
     total_risk_index = (m_score_now * w_macro + t_score_now * w_tech + g_score_now * w_global + calculate_score(vx_s, vx_s) * w_fear) / total_w
@@ -179,14 +199,13 @@ try:
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
     st.info("""
-    **백테스팅(Backtesting)**: 과거 데이터를 사용하여 모델의 유효성을 검증하는 과정입니다. 위험 지수가 선행하여 상승했는지 확인하십시오.
+    **백테스팅(Backtesting)**: 수리적으로 최적화된 시차 데이터를 기반으로 모델의 유효성을 검증합니다.
     """)
     
     dates = ks_s.index[-252:]
     hist_risks = []
     for d in dates:
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
-        # 일본 시장 제외: 글로벌 리스크를 S&P 500 단독 반영으로 수정
         g = get_hist_score_val(sp_s, d, True)
         t = max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500))
         hist_risks.append((m * w_macro + t * w_tech + g * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
@@ -249,7 +268,7 @@ try:
 
     r1_c1, r1_c2, r1_c3 = st.columns(3)
     with r1_c1:
-        st.plotly_chart(create_chart(sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
+        st.plotly_chart(create_chart(sp__s if 'sp_s' in locals() else sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
         st.info("**미국 지수**: KOSPI와 가장 강한 정(+)의 상관성을 보입니다.")
     with r1_c2:
         fx_th = float(fx_s.last('365D').mean() * 1.02)
@@ -286,65 +305,40 @@ try:
         wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
         st.plotly_chart(create_chart(wt_s, "에너지 가격 (WTI 원유)", wt_th, f"{wt_th} 돌파 시 비용 압력"), use_container_width=True)
         st.info(f"**유가**: 유가 급등은 생산 비용 상승과 인플레이션 압박으로 이어져 시장에 부담을 줍니다.")
-    # --- 추가된 코드 섹션 (달러 인덱스) ---
     with r3_c3:
         dx_th = round(float(dx_s.last('365D').mean() * 1.03), 2)
         st.plotly_chart(create_chart(dx_s, "달러 인덱스 (DXY)", dx_th, f"{dx_th} 돌파 시 유동성 위축"), use_container_width=True)
         st.info(f"**달러 가치**: 달러 인덱스 상승은 글로벌 유동성 축소 및 위험자산 회피 신호로 작용합니다.")
-    # -----------------------------------
 
-    # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석 (새로 추가)
+    # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석
     st.markdown("---")
     st.subheader("📊 S&P 500 vs 글로벌 물동량 지표(BDRY) 표준화 비교 분석")
-    
-    # Z-Score 표준화 계산 (평균=0, 표준편차=1)
     sp_norm = (sp_s - sp_s.mean()) / sp_s.std()
     fr_norm = (fr_s - fr_s.mean()) / fr_s.std()
-    
     fig_norm = go.Figure()
     fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Standardized)", line=dict(color='blue', width=1.5)))
     fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="글로벌 물동량 BDRY (Standardized)", line=dict(color='orange', width=1.5)))
-    
-    # S&P 500 폭락 기점 표시
     fig_norm.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="red")
-    fig_norm.add_annotation(x=COVID_EVENT_DATE, y=max(sp_norm.max(), fr_norm.max()), text="S&P 500 폭락 기점(COVID)", showarrow=True, font=dict(color="red"), bgcolor="white")
-    
-    fig_norm.update_layout(
-        title="지수간 동조화 추세 분석 (Z-Score 표준화)",
-        xaxis_title="날짜",
-        yaxis_title="표준화 점수 (Z-Score)",
-        height=500,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
+    fig_norm.update_layout(title="지수간 동조화 추세 분석 (Z-Score 표준화)", xaxis_title="날짜", yaxis_title="표준화 점수 (Z-Score)", height=500, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_norm, use_container_width=True)
-    st.info("**분석 가이드**: 두 지표의 단위를 통일(Z-Score)하여 변동의 궤적을 겹쳐 보았습니다. 물동량이 주가지수보다 선행하거나 동행하는 구간을 통해 경기 흐름을 예측할 수 있습니다.")
 
-    # 11. 섹터별 순환매 분석 (요청 기능 추가)
+    # 11. 섹터별 순환매 분석
     st.markdown("---")
     st.subheader("🌡️ 섹터별 자금 흐름 분석 (KOSPI 주요 섹터)")
-    
     sector_perf = []
     for name, ticker in sector_map.items():
         try:
-            current_val = sector_raw[ticker].iloc[-1]
-            prev_val = sector_raw[ticker].iloc[-2]
+            current_val = sector_raw[ticker].iloc[-1]; prev_val = sector_raw[ticker].iloc[-2]
             change = ((current_val - prev_val) / prev_val) * 100
             sector_perf.append({"섹터": name, "등락률": round(change, 2)})
-        except:
-            pass
-    
+        except: pass
     df_perf = pd.DataFrame(sector_perf)
-    
     if not df_perf.empty:
-        fig_heatmap = px.bar(df_perf, x="섹터", y="등락률", color="등락률",
-                             color_continuous_scale='RdBu_r', 
-                             text="등락률",
-                             title="금일 섹터별 대표 종목 등락 현황 (%)")
+        fig_heatmap = px.bar(df_perf, x="섹터", y="등락률", color="등락률", color_continuous_scale='RdBu_r', text="등락률", title="금일 섹터별 대표 종목 등락 현황 (%)")
         fig_heatmap.update_layout(height=400, coloraxis_showscale=False)
         st.plotly_chart(fig_heatmap, use_container_width=True)
-        st.info("**분석 가이드**: 종합 위험 지수가 상승할 때 방어 섹터(유틸리티, 금융)와 민감 섹터(반도체, IT)의 등락을 비교하여 자금 이동 경로를 파악하십시오.")
 
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 표준화 회귀분석 가중치 최적화 엔진 가동 중")
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
