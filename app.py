@@ -120,9 +120,10 @@ try:
 
     st.divider()
 
-    # 하단 그래프 (2행 4열)
-    fig, axes = plt.subplots(2, 4, figsize=(24, 14))
-    plt.subplots_adjust(hspace=0.6)
+    # 하단 그래프 (2행 4열) - 높이를 14에서 10으로 줄임
+    fig, axes = plt.subplots(2, 4, figsize=(24, 10))
+    # 상하 간격을 0.6에서 0.4로 줄임
+    plt.subplots_adjust(hspace=0.4)
 
     config = [
         ('KOSPI', '1. KOSPI 본체', 'MA250 - 1σ', '선 아래로 하향 시 [추세 붕괴]'),
