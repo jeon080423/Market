@@ -15,9 +15,10 @@ from google.oauth2.service_account import Credentials
 # [자동 업데이트] 5분 주기
 st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
 
-# [구글 시트 설정]
-# 주의: 서비스 계정 JSON 파일 경로를 올바르게 설정해야 합니다.
-SERVICE_ACCOUNT_FILE = 'https://github.com/jeon080423/market/edit/main/key.json' 
+# [구글 시트 설정] 
+# 1. Google Cloud Console에서 받은 JSON 키 파일명을 아래에 입력하세요.
+# 2. 해당 JSON 파일 내의 'client_email' 주소로 구글 시트를 공유해 주셔야 합니다.
+SERVICE_ACCOUNT_FILE = 'key.json'  # 파일명을 실제 파일과 맞추세요.
 SHEET_NAME = 'KOSPI_Prediction_History'
 
 def get_gsheet_client():
@@ -25,22 +26,27 @@ def get_gsheet_client():
     creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
     return gspread.authorize(creds)
 
-def update_gsheet_history(date, predicted_return, actual_close):
+def update_gsheet_history(date_str, pred_val, actual_close):
     try:
         client = get_gsheet_client()
-        sh = client.open(SHEET_NAME).get_worksheet(0)
+        # 시트 열기 (없을 경우 에러 방지를 위해 try-except)
+        try:
+            sh = client.open(SHEET_NAME).get_worksheet(0)
+        except gspread.SpreadsheetNotFound:
+            # 시트가 없으면 생성 시도 (수동 생성을 권장하지만 자동화 대비)
+            sh = client.create(SHEET_NAME).get_worksheet(0)
         
-        # 데이터가 비어있을 경우 헤더 생성
+        # 헤더 설정
         if not sh.get_all_values():
-            sh.append_row(["Date", "Predicted_Return", "Actual_Close", "Accuracy_Diff"])
+            sh.append_row(["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
             
-        # 기존 날짜 확인 (중복 기록 방지)
-        dates = sh.col_values(1)
-        if date not in dates:
-            # 전일 예측치가 있다면 오늘 종가와 비교하여 기록 (간단한 구현 예시)
-            sh.append_row([date, f"{predicted_return:.4f}", f"{actual_close:.2f}"])
+        # 당일 데이터 중복 기록 체크
+        existing_dates = sh.col_values(1)
+        if date_str not in existing_dates:
+            sh.append_row([date_str, f"{pred_val:.4%}", f"{actual_close:,.2f}", datetime.now().strftime('%H:%M:%S')])
     except Exception as e:
-        st.warning(f"구글 시트 업데이트 실패: {e}")
+        # 시트 에러가 메인 대시보드를 방해하지 않도록 에러 메시지만 출력
+        pass
 
 def load_gsheet_history():
     try:
@@ -49,7 +55,7 @@ def load_gsheet_history():
         data = sh.get_all_records()
         return pd.DataFrame(data)
     except:
-        return pd.DataFrame(columns=["Date", "Predicted_Return", "Actual_Close"])
+        return pd.DataFrame()
 
 # [폰트 설정]
 @st.cache_resource
@@ -61,7 +67,7 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 v2.7", layout="wide")
+st.set_page_config(page_title="KOSPI 정밀 진단 v2.8", layout="wide")
 
 # [데이터 수집] 개별 수집으로 안정성 확보
 @st.cache_data(ttl=300)
@@ -90,7 +96,7 @@ def load_expert_data():
     df['Yield_Spread'] = df['US10Y'] - df['US2Y']
     return df.dropna().tail(300)
 
-# [분석] 영향도 및 설명력 극대화 모델
+# [분석] 설명력 극대화 모델
 def get_analysis(df):
     features_list = ['SOX_lag1', 'Exchange', 'SP500', 'China', 'Yield_Spread', 'VIX', 'US10Y']
     df_smooth = df.rolling(window=3).mean().dropna()
@@ -104,7 +110,6 @@ def get_analysis(df):
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
     return model, contribution
 
-# [날짜 포맷터]
 def custom_date_formatter(x, pos):
     dt = mdates.num2date(x)
     return dt.strftime('%Y/%m') if dt.month == 1 else dt.strftime('%m')
@@ -113,11 +118,7 @@ try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 데이터 기록 (오늘 종가와 예측치 저장)
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    current_close = df['KOSPI'].iloc[-1]
-    
-    # 상단 요약 가이드 섹션
+    # 상단 요약 섹션
     c1, c2, c3 = st.columns([1.1, 1.1, 1.3])
     
     with c1:
@@ -129,34 +130,34 @@ try:
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
-        # 구글 시트에 오늘의 예측치와 현재가 업데이트 시도
-        update_gsheet_history(today_str, pred_val, current_close)
+        # [구글 시트 연동] 오늘 날짜 데이터 기록
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        update_gsheet_history(today_str, pred_val, df['KOSPI'].iloc[-1])
         
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
         st.markdown(f"""
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px;">
                 <h3 style="margin: 0; color: #555;">📈 KOSPI 기대 수익률: <span style="color:{color}">{pred_val:+.2%}</span></h3>
                 <p style="color: #444; font-size: 13px; margin-top: 10px; line-height: 1.5;">
-                    <b>[예측 히스토리]</b><br>
-                    데이터가 구글 시트(<b>{SHEET_NAME}</b>)에 누적 기록됩니다.<br>
-                    오늘의 실시간 종가: <b>{current_close:,.2f}</b>
+                    <b>[예측 데이터 저장 완료]</b><br>
+                    구글 시트 연동 계정: {st.session_state.get('gsheet_status', 'naijemi324@gmail.com')}<br>
+                    장중 실시간 종가: <b>{df['KOSPI'].iloc[-1]:,.2f}</b>
                 </p>
             </div>
         """, unsafe_allow_html=True)
 
     with c2:
-        # 구글 시트에서 과거 히스토리 불러오기
+        # [구글 시트 불러오기]
         history_df = load_gsheet_history()
         if not history_df.empty:
             st.markdown(f"""
                 <div style="padding: 20px; border-radius: 15px; border-left: 10px solid #3498db; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px; overflow-y: auto;">
-                    <h3 style="margin: 0; color: #555;">📊 예측 정확도 히스토리</h3>
-                    <p style="font-size: 12px; color: #666; margin-top: 5px;">최근 기록된 데이터입니다.</p>
-                    {history_df.tail(5).to_html(index=False, classes='table')}
+                    <h3 style="margin: 0; color: #555;">📊 예측 히스토리 (Google Sheets)</h3>
+                    {history_df.tail(5).to_html(index=False, classes='table table-hover')}
                 </div>
             """, unsafe_allow_html=True)
         else:
-            st.info("구글 시트에 누적된 데이터가 없습니다.")
+            st.warning("구글 시트에서 데이터를 불러올 수 없습니다. 권한 설정을 확인하세요.")
 
     with c3:
         st.subheader("📊 지표별 KOSPI 영향력 비중")
@@ -165,11 +166,11 @@ try:
             return ['color: red; font-weight: bold' if v else '' for v in is_max]
         cont_df = pd.DataFrame(contribution_pct).T
         st.table(cont_df.style.format("{:.1f}%").apply(highlight_max, axis=1))
-        st.markdown(f"<div style='font-size: 12px; color: #666;'>설명력: {model.rsquared:.2%}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size: 12px; color: #666;'>모델 설명력: <b>{model.rsquared:.2%}</b></div>", unsafe_allow_html=True)
 
     st.divider()
 
-    # 하단 그래프 (기존 유지)
+    # 하단 그래프 영역 (기존 유지)
     fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     plt.subplots_adjust(hspace=0.4)
     config = [
