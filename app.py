@@ -55,19 +55,33 @@ def load_data():
 
 # 6. 리포트 및 뉴스 함수
 def get_analyst_reports():
+    # '현재 시점 기준 최신 10개'를 가져오기 위해 기본 리스트 페이지 호출
     url = "http://consensus.hankyung.com/apps.analysis/analysis.list?skinType=business"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     try:
         res = requests.get(url, headers=headers, timeout=10)
+        res.raise_for_status()
         soup = BeautifulSoup(res.text, 'html.parser')
         reports = []
-        for row in soup.select("tr")[1:11]:
+        
+        # 테이블의 행(tr)을 찾아서 데이터 추출
+        table_rows = soup.select("tr")
+        for row in table_rows:
+            if len(reports) >= 10: break  # 최신 10개만 수집
+            
             titles = row.select(".text_l a")
             if titles:
                 d = row.select("td")
-                reports.append({"제목": titles[0].get_text().strip(), "종목": d[1].get_text().strip(), "출처": f"{d[4].get_text().strip()}({d[3].get_text().strip()})"})
+                if len(d) >= 5:
+                    title_text = titles[0].get_text().strip()
+                    stock_name = d[1].get_text().strip()
+                    source = f"{d[4].get_text().strip()}({d[3].get_text().strip()})"
+                    reports.append({"제목": title_text, "종목": stock_name, "출처": source})
         return reports
-    except: return []
+    except Exception as e:
+        return []
 
 @st.cache_data(ttl=600)
 def get_market_news():
@@ -133,8 +147,12 @@ try:
         st.subheader("📰 글로벌 마켓 리스크 뉴스")
         for n in get_market_news(): st.markdown(f"- [{n['title']}]({n['link']})")
     with c_report:
-        st.subheader("📝 실시간 애널리스트 보고서")
-        st.dataframe(pd.DataFrame(get_analyst_reports()), use_container_width=True, hide_index=True)
+        st.subheader("📝 최신 애널 보고서")
+        report_df = pd.DataFrame(get_analyst_reports())
+        if not report_df.empty:
+            st.dataframe(report_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("현재 최신 보고서 데이터를 불러올 수 없습니다.")
 
     # 9. 지표별 상세 분석 (3열 배치)
     st.markdown("---")
