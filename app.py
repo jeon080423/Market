@@ -116,7 +116,22 @@ try:
         
     with c3:
         st.subheader("📊 지표별 KOSPI 영향력 비중")
-        st.table(pd.DataFrame(contribution_pct).T.style.format("{:.1f}%"))
+        
+        # 최고 수치 빨간색 볼드 처리 로직
+        def highlight_max(s):
+            is_max = s == s.max()
+            return ['color: red; font-weight: bold' if v else '' for v in is_max]
+        
+        cont_df = pd.DataFrame(contribution_pct).T
+        st.table(cont_df.style.format("{:.1f}%").apply(highlight_max, axis=1))
+        
+        # 산출 근거 및 설명력 표시
+        st.markdown(f"""
+            <div style="font-size: 12px; color: #666; line-height: 1.4; margin-top: -10px;">
+                <b>산출 근거:</b> 다중 회귀 모델의 표준화 계수(Standardized Beta) 절대값 비중 합산<br>
+                <b>모델 설명력:</b> 최근 데이터 기준 <span style="color: #333; font-weight: bold;">{model.rsquared:.2%} (R-squared)</span>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 
