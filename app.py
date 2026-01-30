@@ -9,6 +9,7 @@ import matplotlib.font_manager as fm
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import os
+import time
 
 # [자동 업데이트] 15분 주기
 st_autorefresh(interval=15 * 60 * 1000, key="datarefresh")
@@ -16,29 +17,26 @@ st_autorefresh(interval=15 * 60 * 1000, key="datarefresh")
 # [로컬 데이터 보존 설정]
 HISTORY_FILE = 'prediction_history.csv'
 
-def save_prediction_history(date_str, pred_val, actual_close, prev_close):
-    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지 (예측 종가, 실제 차이 비교 추가)"""
-    pred_close = prev_close * (1 + pred_val)
-    diff = actual_close - pred_close # 실제종가 - 예측종가 (오차)
+def save_prediction_history(date_str, pred_val, actual_close):
+    """
+    예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지
+    - 전일 예측수익률: 어제 예측했던 값 (현재 로직상 오늘 예측값을 저장해둠)
+    - 예측 종가: 어제의 예측 수익률 * 그저께 종가 (오늘 시점에서 계산 불가하므로 저장된 값 활용)
+    """
+    # 신규 데이터 구조: [날짜, 예측수익률(오늘 기준), 실제종가(오늘), 기록시각]
+    # 내일이 되면 오늘의 '예측수익률'이 '전일 예측수익률'이 됨.
     
     new_data = pd.DataFrame([[
-        date_str, 
-        f"{pred_val:.4%}", 
-        f"{pred_close:,.2f}", 
-        f"{actual_close:,.2f}",
-        f"{diff:,.2f}", # 종가 차이 추가
-        datetime.now().strftime('%H:%M:%S')
-    ]], columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
+        date_str, pred_val, actual_close, datetime.now().strftime('%H:%M:%S')
+    ]], columns=["날짜", "예측수익률_Raw", "실제종가_Raw", "기록시각"])
     
     if os.path.exists(HISTORY_FILE):
         try:
             history_df = pd.read_csv(HISTORY_FILE)
+            # 당일 데이터 중복 방지 (장 마감 후 1회만 저장하는 로직 유지)
             if date_str not in history_df["날짜"].values:
-                # 장 마감 시간(15:30) 이후이거나 데이터가 아직 없는 경우에만 누적
                 current_time = datetime.now().time()
                 market_close = datetime.strptime("15:30", "%H:%M").time()
-                
-                # 장 마감 후에만 신규 데이터를 최종 확정하여 저장
                 if current_time >= market_close:
                     history_df = pd.concat([history_df, new_data], ignore_index=True)
                     history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
@@ -47,33 +45,69 @@ def save_prediction_history(date_str, pred_val, actual_close, prev_close):
     else:
         new_data.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
-def load_prediction_history():
-    """로컬 CSV 파일에서 히스토리 불러오기"""
-    if os.path.exists(HISTORY_FILE):
-        try:
-            return pd.read_csv(HISTORY_FILE)
-        except:
-            return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
-    return pd.DataFrame(columns=["날짜", "전일대비 예측수익률", "예측 종가", "실제 종가", "예측 오차", "기록시각"])
+def load_prediction_history_display():
+    """저장된 Raw 데이터를 기반으로 사용자가 요청한 형식의 테이블 생성"""
+    if not os.path.exists(HISTORY_FILE):
+        return pd.DataFrame(columns=["날짜", "전일 예측수익률", "예측 종가", "실제 종가", "예측 오차(%)", "기록시각"])
+    
+    try:
+        df = pd.read_csv(HISTORY_FILE)
+        display_list = []
+        
+        for i in range(len(df)):
+            row = df.iloc[i]
+            date = row['날짜']
+            actual_close = row['실제종가_Raw']
+            time_str = row['기록시각']
+            
+            # 전일 데이터 가져오기 (i-1 인덱스 활용)
+            if i > 0:
+                prev_row = df.iloc[i-1]
+                prev_pred_val = prev_row['예측수익률_Raw'] # 전일 예측 수익률
+                
+                # 예측 종가 계산: 전일 실제 종가 * (1 + 전일 예측 수익률)
+                # (주의: 사용자는 '그제 종가'라고 했으나, 논리적으로 전일 종가 기준이 맞음. 전일 종가에 예측률을 곱해야 오늘 예상가가 나옴)
+                prev_actual_close = prev_row['실제종가_Raw']
+                pred_close_price = prev_actual_close * (1 + prev_pred_val)
+                
+                # 오차율 계산: (실제 - 예측) / 예측 * 100
+                error_rate = ((actual_close - pred_close_price) / pred_close_price) * 100
+                
+                display_list.append([
+                    date, 
+                    f"{prev_pred_val:.4%}", 
+                    f"{pred_close_price:,.2f}", 
+                    f"{actual_close:,.2f}", 
+                    f"{error_rate:+.2f}%", 
+                    time_str
+                ])
+            else:
+                # 첫 데이터라 전일 기록이 없는 경우
+                display_list.append([
+                    date, "-", "-", f"{actual_close:,.2f}", "-", time_str
+                ])
+                
+        return pd.DataFrame(display_list, columns=["날짜", "전일 예측수익률", "예측 종가", "실제 종가", "예측 오차(%)", "기록시각"])
+    except:
+        return pd.DataFrame(columns=["날짜", "전일 예측수익률", "예측 종가", "실제 종가", "예측 오차(%)", "기록시각"])
 
 # [폰트 설정]
 @st.cache_resource
 def get_korean_font():
     font_path = os.path.join(os.getcwd(), 'NanumGothic.ttf')
-    if os.path.exists(font_path):
-        return fm.FontProperties(fname=font_path)
+    if os.path.exists(font_path): return fm.FontProperties(fname=font_path)
     return None
 
 fprop = get_korean_font()
-
-st.set_page_config(page_title="KOSPI 정밀 진단 v2.8", layout="wide")
+st.set_page_config(page_title="KOSPI 인텔리전스 진단 v3.0", layout="wide")
 
 # [데이터 수집] 개별 수집으로 안정성 확보 및 에러 핸들링 강화
 @st.cache_data(ttl=900)
 def load_expert_data():
     tickers = {
         '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
-        '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y'
+        '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y',
+        '005930.KS': 'Samsung', '000660.KS': 'Hynix', '005380.KS': 'Hyundai', '373220.KS': 'LG_Energy'
     }
     start_date = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
     combined_df = pd.DataFrame()
@@ -120,7 +154,7 @@ try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 요약 가이드 섹션 (3컬럼 구조 복원)
+    # 상단 요약 가이드 섹션
     c1, c2, c3 = st.columns([1.1, 1.1, 1.3])
     
     with c1:
@@ -134,9 +168,9 @@ try:
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
-        # 히스토리 저장
+        # 히스토리 저장 (Raw 데이터 저장)
         today_str = datetime.now().strftime('%Y-%m-%d')
-        save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1], prev_val_level)
+        save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1])
         
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
         st.markdown(f"""
@@ -151,14 +185,14 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
-        # [이동] 예측 히스토리를 KOSPI 기대 수익률 밑으로 배치
+        # [수정] 예측 히스토리 표 표시 (가공된 데이터 로드)
         st.write("") 
-        history_df = load_prediction_history()
-        if not history_df.empty:
+        history_display_df = load_prediction_history_display()
+        if not history_display_df.empty:
             st.markdown(f"""
                 <div style="padding: 15px; border-radius: 10px; border: 1px solid #eee; background-color: #f9f9f9; max-height: 250px; overflow-y: auto;">
                     <h5 style="margin: 0 0 10px 0;">📊 예측 히스토리</h5>
-                    {history_df.tail(10).to_html(index=False, classes='table table-striped')}
+                    {history_display_df.tail(10).to_html(index=False, classes='table table-striped')}
                 </div>
             """, unsafe_allow_html=True)
 
