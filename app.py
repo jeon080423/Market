@@ -36,13 +36,17 @@ def load_all_market_data():
     
     start_date = (datetime.now() - timedelta(days=1000)).strftime('%Y-%m-%d')
     
-    # 1. 금융 데이터 수집 및 구조 정규화
+    # 1. 금융 데이터 수집
     try:
-        # group_by='column'으로 설정하여 종가 데이터를 더 쉽게 추출
         raw_data = yf.download(list(tickers.keys()), start=start_date, interval='1d', progress=False)
         
+        # yfinance 멀티인덱스 대응 (가장 안전한 방식)
         if isinstance(raw_data.columns, pd.MultiIndex):
-            df = raw_data['Close'].copy()
+            if 'Close' in raw_data.columns.levels[0]:
+                df = raw_data['Close'].copy()
+            else:
+                # 가끔 레벨이 뒤집히는 경우 대응
+                df = raw_data.xs('Close', axis=1, level=0)
         else:
             df = raw_data.copy()
             
@@ -57,13 +61,12 @@ def load_all_market_data():
     
     try:
         us_unemployment = web.DataReader('ICSA', 'fred', start_date)
-        # 한국 실업률 (LRHUTTTTKRW156S)
         kr_unemployment = web.DataReader('LRHUTTTTKRW156S', 'fred', start_date)
     except:
         pass
 
     if not df.empty:
-        # 데이터 정제: 시차 변수 생성 전 결측치 처리
+        # 데이터 정제
         df = df.ffill().bfill()
         df['SOX_lag1'] = df['SOX'].shift(1)
         df['Yield_Spread'] = df['US10Y'] - df['US2Y']
@@ -78,31 +81,28 @@ st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 try:
     df, us_job, kr_job = load_all_market_data()
     
-    if df.empty or len(df) < 30:
-        st.warning("데이터 수집량이 충분하지 않습니다. 잠시 후 다시 시도합니다.")
+    if df.empty or len(df) < 50:
+        st.warning("데이터 수집량이 충분하지 않습니다. 잠시 후 자동으로 다시 시도합니다.")
         st.stop()
 
-    # --- 회귀 분석 로직 (안정화 버전) ---
-    # 로그 수익률 변환
-    returns_df = np.log(df / df.shift(1)).dropna()
+    # --- 회귀 분석 로직 ---
+    # 로그 수익률 변환 및 무한대 제거
+    returns_df = np.log(df / df.shift(1)).replace([np.inf, -np.inf], np.nan).dropna()
     
     y = returns_df['KOSPI']
     features = ['SOX_lag1', 'Exchange', 'SP500', 'China', 'Yield_Spread', 'VIX', 'US10Y']
     
-    # 변수 선택 및 무한대/결측치 최종 제거
-    X = returns_df[features].replace([np.inf, -np.inf], 0).fillna(0)
+    X = returns_df[features].fillna(0)
     X = sm.add_constant(X)
     
-    # 모델 학습
     model = sm.OLS(y, X).fit()
     
-    # 최신 데이터를 통한 예측 (최신 변화율 사용)
-    latest_change = df[features + ['KOSPI']].pct_change().iloc[-1].replace([np.inf, -np.inf], 0).fillna(0)
-    # 분석용 features와 순서 맞춤
-    pred_input = [1.0] + [latest_change[f] for f in features]
-    pred = model.predict([pred_input])[0]
+    # 최신 변화율 기반 예측 (순서 보장)
+    latest_pct = df[features].pct_change().iloc[-1].replace([np.inf, -np.inf], 0).fillna(0)
+    pred_features = [1.0] + [latest_pct[f] for f in features]
+    pred = model.predict([pred_features])[0]
 
-    # 신호 요약 표시
+    # 신호 요약
     s_color = "red" if pred < -0.003 else "orange" if pred < 0.001 else "green"
     status_msg = "하락 경계" if s_color=="red" else "중립/관망" if s_color=="orange" else "상승 기대"
     
@@ -160,4 +160,4 @@ try:
 
 except Exception as e:
     st.error(f"시스템 오류 발생: {e}")
-    st.info("데이터 로딩 중 일시적인 오류일 수 있습니다. 5분 뒤 자동 갱신됩니다.")
+    st.info("데이터 로딩 중입니다. 5분 뒤 자동으로 다시 시도합니다.")
