@@ -8,7 +8,7 @@ import matplotlib.font_manager as fm
 from datetime import datetime, timedelta
 import os
 
-# [폰트 설정] 
+# [폰트 설정]
 @st.cache_resource
 def get_korean_font():
     font_path = os.path.join(os.getcwd(), 'NanumGothic.ttf')
@@ -18,117 +18,103 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-# [설정] 
-st.set_page_config(page_title="KOSPI 8대 지표 복합 분석", layout="wide")
+# [설정] 페이지 레이아웃 가로 확장
+st.set_page_config(page_title="KOSPI 8대 요인 복합 진단", layout="wide")
 
-# [데이터 수집] 8대 지표 (KOSPI 포함)
+# [데이터 수집]
 @st.cache_data(ttl=3600)
 def load_market_data():
     end_date = datetime.now()
     start_date = end_date - timedelta(days=730)
-    # 8대 요인 티커 매핑
     tickers = {
-        '^KS11': 'KOSPI',        # 1. 국내 지수
-        '^SOX': 'SOX',           # 2. 미 반도체
-        '^GSPC': 'SP500',        # 3. 미 대형주
-        '^VIX': 'VIX',           # 4. 공포지수
-        'USDKRW=X': 'Exchange',  # 5. 환율
-        '^TNX': 'US10Y',         # 6. 미 장기금리
-        '^IRX': 'US2Y',          # 7. 미 단기금리
-        '000001.SS': 'China'     # 8. 중국 경기(상하이)
+        '^KS11': 'KOSPI', '^SOX': 'SOX', '^GSPC': 'SP500', '^VIX': 'VIX',
+        'USDKRW=X': 'Exchange', '^TNX': 'US10Y', '^IRX': 'US2Y', '000001.SS': 'China'
     }
     data = yf.download(list(tickers.keys()), start=start_date, end=end_date)['Close']
     data = data.rename(columns=tickers).ffill().bfill()
-    
-    # 파생 변수 처리
-    data['SOX_lag1'] = data['SOX'].shift(1)  # 시차 반영
-    data['Yield_Spread'] = data['US10Y'] - data['US2Y'] # 금리차
-    
+    data['SOX_lag1'] = data['SOX'].shift(1)
+    data['Yield_Spread'] = data['US10Y'] - data['US2Y']
     return data.dropna()
 
-# [분석] 회귀 분석
+# [분석] 회귀 모델링
 def perform_analysis(df):
     y = np.log(df['KOSPI'] / df['KOSPI'].shift(1)).dropna()
-    # 8대 복합 요인 구성
     features = ['SOX_lag1', 'Exchange', 'SP500', 'China', 'Yield_Spread', 'VIX', 'US10Y', 'KOSPI']
     X = df[features].pct_change().loc[y.index].replace([np.inf, -np.inf], 0).fillna(0)
     X = sm.add_constant(X)
     model = sm.OLS(y, X).fit()
     return model, X.iloc[-1]
 
-# [UI]
-st.title("🛡️ KOSPI 8대 핵심 요인 복합 분석 시스템")
-st.markdown("8개 핵심 지표의 상관관계를 통계적으로 검토하여 시장의 위험 수준을 판단합니다.")
+# [UI 구현]
+st.title("🛡️ KOSPI 8대 핵심 요인 복합 진단 시스템")
+st.markdown("한 줄에 4개씩, 총 8개 지표를 가로로 배치하여 최근 데이터 기반 위험선을 모니터링합니다.")
 
 try:
     df = load_market_data()
     model, latest_x = perform_analysis(df)
     
-    # 요약 메트릭
-    st.sidebar.subheader(f"📊 모델 설명력 (R²): {model.rsquared:.2%}")
-    pred = model.predict(latest_x.values.reshape(1, -1))[0]
-    
+    # 상단 요약 지표
     col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        st.metric("예측 기대수익률", f"{pred:.2%}")
-    with col_b:
+    pred = model.predict(latest_x.values.reshape(1, -1))[0]
+    with col_a: st.metric("모델 설명력 (R²)", f"{model.rsquared:.2%}")
+    with col_b: 
         status = "위험" if pred < -0.003 else "경계" if pred < 0 else "안정"
         st.subheader(f"종합 진단: {status}")
-    with col_c:
-        st.write(f"데이터 갱신: {df.index[-1].strftime('%Y-%m-%d')}")
+    with col_c: st.write(f"최근 데이터: {df.index[-1].strftime('%Y-%m-%d')}")
 
     st.divider()
 
-    # [8대 지표 시각화] 4x2 레이아웃
-    st.subheader("⚠️ 8대 요인 실시간 모니터링")
-    
-    fig, axes = plt.subplots(4, 2, figsize=(14, 18))
-    plt.rcParams['axes.unicode_minus'] = False 
+    # [그래프 섹션] 2행 4열 구조
+    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+    plt.rcParams['axes.unicode_minus'] = False
 
-    # 1. KOSPI
-    axes[0, 0].plot(df['KOSPI'].tail(100), color='black', lw=2)
-    axes[0, 0].set_title("1. 코스피 지수 (KOSPI)", fontproperties=fprop, fontsize=12)
+    # 지표 리스트 및 위험 설정 (최근 데이터 기반)
+    # 각 요소: (데이터컬럼, 제목, 위험선, 색상, 설명)
+    plot_info = [
+        ('KOSPI', '1. KOSPI 지수', 2400, 'black', '심리적 지지선: 2,400'),
+        ('Exchange', '2. 환율 (USD/KRW)', 1380, 'tab:blue', '위험 임계점: 1,380원'),
+        ('SOX_lag1', '3. 미 반도체(SOX)', 4500, 'tab:green', '공급망 우려선: 4,500'),
+        ('SP500', '4. 미 S&P 500', 5500, 'tab:cyan', '추세 이탈선: 5,500'),
+        ('VIX', '5. 공포지수(VIX)', 20, 'tab:purple', '공포 확산선: 20.0'),
+        ('China', '6. 상하이 종합', 2900, 'tab:red', '경기 침체선: 2,900'),
+        ('Yield_Spread', '7. 장단기 금리차', 0, 'tab:orange', '경기 불황선: 0.00'),
+        ('US10Y', '8. 미 국채 10Y', 4.5, 'tab:brown', '고금리 압박선: 4.5%')
+    ]
 
-    # 2. 환율 (임계점 1,380)
-    axes[0, 1].plot(df['Exchange'].tail(100), color='tab:blue')
-    axes[0, 1].axhline(y=1380, color='red', linestyle='--')
-    axes[0, 1].set_title("2. 원/달러 환율 (위험선: 1,380)", fontproperties=fprop, fontsize=12)
-
-    # 3. 미 반도체 (시차)
-    axes[1, 0].plot(df['SOX_lag1'].tail(100), color='tab:green')
-    axes[1, 0].set_title("3. 필라델피아 반도체 (SOX Lag)", fontproperties=fprop, fontsize=12)
-
-    # 4. S&P 500
-    axes[1, 1].plot(df['SP500'].tail(100), color='tab:cyan')
-    axes[1, 1].set_title("4. 미 S&P 500 지수", fontproperties=fprop, fontsize=12)
-
-    # 5. VIX (임계점 20)
-    axes[2, 0].plot(df['VIX'].tail(100), color='tab:purple')
-    axes[2, 0].axhline(y=20, color='red', linestyle='--')
-    axes[2, 0].set_title("5. 공포지수 (VIX)", fontproperties=fprop, fontsize=12)
-
-    # 6. 중국 상하이 지수
-    axes[2, 1].plot(df['China'].tail(100), color='tab:red')
-    axes[2, 1].set_title("6. 중국 상하이 종합지수", fontproperties=fprop, fontsize=12)
-
-    # 7. 장단기 금리차
-    axes[3, 0].plot(df['Yield_Spread'].tail(100), color='tab:orange')
-    axes[3, 0].axhline(y=0, color='gray', linestyle='-')
-    axes[3, 0].set_title("7. 미 장단기 금리차 (10Y-2Y)", fontproperties=fprop, fontsize=12)
-
-    # 8. 미 10년물 금리
-    axes[3, 1].plot(df['US10Y'].tail(100), color='tab:brown')
-    axes[3, 1].set_title("8. 미 국채 10년물 금리", fontproperties=fprop, fontsize=12)
-
-    # 폰트 일괄 적용
-    for ax in axes.flat:
+    for i, (col, title, threshold, color, desc) in enumerate(plot_info):
+        ax = axes[i // 4, i % 4]
+        ax.plot(df[col].tail(100), color=color, lw=2)
+        ax.axhline(y=threshold, color='red', linestyle='--', alpha=0.7)
+        ax.set_title(title, fontproperties=fprop, fontsize=16, fontweight='bold')
+        
+        # 그래프별 하단 설명 추가
+        ax.annotate(desc, xy=(0.5, -0.15), xycoords='axes fraction', 
+                    ha='center', fontproperties=fprop, fontsize=12, color='red')
+        
+        # 눈금 폰트 설정
         for label in (ax.get_xticklabels() + ax.get_yticklabels()):
             label.set_fontproperties(fprop)
 
     plt.tight_layout()
     st.pyplot(fig)
     
-    st.info("**8대 요인 복합 가이드:** 본 시스템은 위 8가지 지표의 변화율을 다중 회귀 분석하여 코스피에 미치는 순영향을 산출합니다. 환율 1,380원 상회나 금리차의 급격한 변화를 유의 깊게 살펴야 합니다.")
+    st.divider()
+    
+    # 하단 8대 지표 상세 설명 가이드
+    st.subheader("📝 지표별 최근 위험 기준 근거")
+    g1, g2, g3, g4 = st.columns(4)
+    with g1:
+        st.write("**1. KOSPI:** 최근 하락 추세에서 강력한 심리적/기술적 지지선인 2,400선을 기준으로 잡았습니다.")
+        st.write("**2. 환율:** '뉴노멀' 환율 환경을 반영하여 외국인 수급이 발작하는 1,380원을 기준선으로 설정했습니다.")
+    with g2:
+        st.write("**3. 미 반도체:** 글로벌 AI 업황의 둔화 여부를 판가름하는 SOX 지수 4,500선을 경계선으로 봅니다.")
+        st.write("**4. S&P 500:** 미 증시의 중장기 상승 추세 유지 여부를 결정짓는 5,500선을 기준으로 합니다.")
+    with g3:
+        st.write("**5. VIX:** 시장 변동성이 평시를 벗어나 패닉으로 진입하는 통계적 수치 20.0을 위험선으로 설정했습니다.")
+        st.write("**6. 상하이:** 대중국 수출 의존도를 고려, 중국 경기의 마지노선인 상하이 2,900선을 주시합니다.")
+    with g4:
+        st.write("**7. 금리차:** 수익률 곡선 역전 후 해소되는 과정에서의 경기 불황 전조인 0.00선을 기준으로 합니다.")
+        st.write("**8. 미 10년물:** 고금리 기조가 국내 증시의 밸류에이션을 압박하기 시작하는 4.5%를 경계선으로 잡았습니다.")
 
 except Exception as e:
-    st.error(f"오류 발생: {e}")
+    st.error(f"데이터 분석 중 오류가 발생했습니다: {e}")
