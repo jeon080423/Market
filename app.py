@@ -18,7 +18,7 @@ st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
 # [구글 시트 설정] 
 # 1. Google Cloud Console에서 받은 JSON 키 파일명을 아래에 입력하세요.
 # 2. 해당 JSON 파일 내의 'client_email' 주소로 구글 시트를 공유해 주셔야 합니다.
-SERVICE_ACCOUNT_FILE = 'key.json'  # 파일명을 실제 파일과 맞추세요.
+SERVICE_ACCOUNT_FILE = 'service_account.json'  # 파일명을 실제 파일과 맞추세요.
 SHEET_NAME = 'KOSPI_Prediction_History'
 
 def get_gsheet_client():
@@ -207,3 +207,4 @@ try:
 
 except Exception as e:
     st.error(f"오류 발생: {e}")
+
