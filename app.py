@@ -51,7 +51,6 @@ def load_data():
     us_2y = yf.download("^IRX", start=start_date, end=end_date)
     vix = yf.download("^VIX", start=start_date, end=end_date)
     copper = yf.download("HG=F", start=start_date, end=end_date)
-    # 물동량 지표 (Breakwave Dry Bulk Shipping ETF - BDI 지수 대용)
     freight = yf.download("BDRY", start=start_date, end=end_date)
     return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight
 
@@ -67,10 +66,8 @@ def get_analyst_reports():
         res.encoding = 'euc-kr' 
         soup = BeautifulSoup(res.text, 'html.parser')
         reports = []
-        
         table = soup.select_one("table.type_1")
         if not table: return []
-        
         rows = table.select("tr")
         for row in rows:
             if len(reports) >= 10: break
@@ -111,6 +108,7 @@ try:
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
 
+    # 위험 점수 계산 함수
     def calculate_score(current_series, full_series, inverse=False):
         recent = full_series.last('365D')
         if recent.empty: return 50.0
@@ -119,32 +117,105 @@ try:
         if max_v == min_v: return 0.0
         return float(max(0, min(100, ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100)))
 
-    # 위험 점수 계산
+    # 현재 위험 점수 계산
     score_sp = calculate_score(sp_s, sp_s, inverse=True)
     score_nk = calculate_score(nk_s, nk_s, inverse=True)
     global_risk_score = (score_sp * 0.6) + (score_nk * 0.4)
-
     score_fx = calculate_score(fx_s, fx_s)
     score_bond = calculate_score(b10_s, b10_s)
     score_cp = calculate_score(cp_s, cp_s, inverse=True)
     macro_score = (score_fx + score_bond + score_cp) / 3
-    
     tech_score = max(0.0, min(100.0, float(100 - (float(ks_s.iloc[-1]) / float(ma20.iloc[-1]) - 0.9) * 500)))
     fear_score = calculate_score(vx_s, vx_s)
 
     total_risk_index = float((macro_score * w_macro + tech_score * w_tech + global_risk_score * w_global + fear_score * w_fear) / total_w)
 
-    # 7. 메인 게이지
-    fig_gauge = go.Figure(go.Indicator(
-        mode = "gauge+number", value = total_risk_index,
-        title = {'text': "종합 시장 위험 지수", 'font': {'size': 24}},
-        gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "black"},
-                 'steps': [{'range': [0, 40], 'color': "green"}, {'range': [40, 60], 'color': "yellow"},
-                           {'range': [60, 80], 'color': "orange"}, {'range': [80, 100], 'color': "red"}]}
-    ))
-    st.plotly_chart(fig_gauge, use_container_width=True)
+    # 7. 지수 가이드 및 메인 게이지 배치
+    st.markdown("---")
+    col_guide, col_gauge = st.columns([1, 1.5])
 
-    # 8. 뉴스 및 보고서 가로 배치
+    with col_guide:
+        st.subheader("💡 지수를 더 똑똑하게 보는 법")
+        st.markdown("""
+        | 점수 구간 | 의미 | 권장 대응 |
+        | :--- | :--- | :--- |
+        | **0 ~ 40 (Safe)** | 시장 과열 또는 안정기 | 적극적 수익 추구 |
+        | **40 ~ 60 (Watch)** | 지표 간 충돌 발생 (혼조세) | 현금 비중 확보 고민 시작 |
+        | **60 ~ 80 (Danger)** | 다수 지표가 위험 신호 발생 | 공격적 투자 지양, 방어적 포트폴리오 |
+        | **80 ~ 100 (Panic)** | 시스템적 위기 가능성 농후 | 리스크 관리 최우선 (현금 확보) |
+        """)
+
+    with col_gauge:
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number", value = total_risk_index,
+            title = {'text': "종합 시장 위험 지수", 'font': {'size': 24}},
+            gauge = {'axis': {'range': [0, 100]}, 'bar': {'color': "black"},
+                     'steps': [{'range': [0, 40], 'color': "green"}, {'range': [40, 60], 'color': "yellow"},
+                               {'range': [60, 80], 'color': "orange"}, {'range': [80, 100], 'color': "red"}]}
+        ))
+        fig_gauge.update_layout(margin=dict(t=50, b=0, l=30, r=30), height=350)
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # 위험 수준별 경고 메시지
+        if total_risk_index >= 80:
+            st.error("🚨 **패닉 경보**: 시스템적 위기 징후가 포착되었습니다. 자산 보호를 위해 현금 비중을 대폭 확대하십시오.")
+        elif total_risk_index >= 60:
+            st.warning("⚠️ **위험 경보**: 주요 지표들이 동시다발적으로 하락을 예고하고 있습니다. 방어적인 포트폴리오 운용이 필요합니다.")
+        elif total_risk_index >= 40:
+            st.info("🔍 **모니터링 알림**: 시장의 불확실성이 증가하고 있습니다. 개별 지표의 변동성을 면밀히 관찰하세요.")
+        else:
+            st.success("✅ **시장 안정**: 지표들이 안정적인 흐름을 보이고 있습니다. 기존 투자 전략을 유지하기 좋은 시점입니다.")
+
+    # 8. 백테스팅 기능 (역사적 위험 지수 추이)
+    st.markdown("---")
+    st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
+    
+    with st.spinner('역사적 데이터 시뮬레이션 중...'):
+        # 성능을 위해 최근 250거래일(약 1년) 데이터 추출
+        lookback = 252
+        dates = ks_s.index[-lookback:]
+        
+        def get_hist_score(series, current_idx, inverse=False):
+            sub = series.loc[:current_idx].iloc[-252:]
+            if len(sub) < 10: return 50.0
+            min_v, max_v = sub.min(), sub.max()
+            curr_v = series.loc[current_idx]
+            if max_v == min_v: return 0.0
+            return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
+
+        # 백테스트 계산
+        hist_risks = []
+        for d in dates:
+            s_sp = get_hist_score(sp_s, d, True)
+            s_nk = get_hist_score(nk_s, d, True)
+            g_risk = (s_sp * 0.6) + (s_nk * 0.4)
+            s_fx = get_hist_score(fx_s, d)
+            s_bn = get_hist_score(b10_s, d)
+            s_cp = get_hist_score(cp_s, d, True)
+            m_score = (s_fx + s_bn + s_cp) / 3
+            t_score = max(0, min(100, 100 - (ks_s.loc[d] / ma20.loc[d] - 0.9) * 500))
+            f_score = get_hist_score(vx_s, d)
+            
+            total_h = (m_score * w_macro + t_score * w_tech + g_risk * w_global + f_score * w_fear) / total_w
+            hist_risks.append(total_h)
+
+        hist_df = pd.DataFrame({'Date': dates, 'RiskIndex': hist_risks, 'KOSPI': ks_s.loc[dates].values})
+        
+        fig_bt = go.Figure()
+        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['RiskIndex'], name="위험 지수", line=dict(color='red', width=2)))
+        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot')))
+        
+        fig_bt.update_layout(
+            title="위험 지수 vs KOSPI 동조화 분석",
+            yaxis=dict(title="위험 지수 (0-100)", range=[0, 100]),
+            yaxis2=dict(title="KOSPI 지수", overlaying="y", side="right"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=400
+        )
+        st.plotly_chart(fig_bt, use_container_width=True)
+        st.caption("※ 위험 지수가 급격히 상승할 때 KOSPI의 하락 압력이 강해지는 경향을 확인할 수 있습니다.")
+
+    # 9. 뉴스 및 보고서 가로 배치
     st.markdown("---")
     c_news, c_report = st.columns(2)
     with c_news:
@@ -156,9 +227,9 @@ try:
         if reports:
             st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         else:
-            st.info("현재 데이터를 불러오는 중이거나 최신 보고서가 없습니다. (평일 장중에 업데이트됩니다.)")
+            st.info("현재 데이터를 불러오는 중이거나 최신 보고서가 없습니다.")
 
-    # 9. 지표별 상세 분석
+    # 10. 지표별 상세 분석
     st.markdown("---")
     st.subheader("🔍 실물 경제 및 주요 상관관계 지표 분석")
     
@@ -205,7 +276,6 @@ try:
     st.markdown("---")
     r3_c1, r3_c2, r3_c3 = st.columns(3)
     with r3_c1:
-        # 최근 1년 평균 대비 -15% 하락 시를 추세적 붕괴(위험) 구간으로 제안하여 설정
         fr_threshold = round(float(fr_s.last('365D').mean() * 0.85), 2)
         st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_threshold, 'below', f"지지선({fr_threshold}) 붕괴 시 위험"), use_container_width=True)
         st.info(f"**물동량 분석**: 건화물선 운임은 경기 선행 지표입니다. 현재 기준선({fr_threshold}) 하향 돌파 시 글로벌 경기 수축 신호로 간주합니다.")
