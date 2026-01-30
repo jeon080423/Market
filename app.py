@@ -23,9 +23,9 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 v2.6", layout="wide")
+st.set_page_config(page_title="KOSPI 정밀 진단 v2.7", layout="wide")
 
-# [데이터 수집] 개별 수집으로 멀티인덱스 에러 방지
+# [데이터 수집] 개별 수집으로 안정성 확보
 @st.cache_data(ttl=300)
 def load_expert_data():
     tickers = {
@@ -64,30 +64,33 @@ def get_analysis(df):
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
     return model, contribution
 
-# [사용자 정의 날짜 포맷터]
+# [날짜 포맷터] 1월만 연도 표시
 def custom_date_formatter(x, pos):
     dt = mdates.num2date(x)
-    if dt.month == 1:
-        return dt.strftime('%Y/%m')
-    else:
-        return dt.strftime('%m')
+    return dt.strftime('%Y/%m') if dt.month == 1 else dt.strftime('%m')
 
 try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 정보 섹션
-    c1, c2 = st.columns([1, 1.5])
+    # 상단 요약 가이드 섹션
+    c1, c2 = st.columns([1.2, 1.3])
     with c1:
         current_chg = (df.iloc[-1] / df.iloc[-2] - 1)
         pred_input = [1] + [current_chg[f] for f in contribution_pct.index]
         pred_val = model.predict(pred_input)[0]
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
+        
         st.markdown(f"""
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <h3 style="margin: 0; color: #555;">종합 투자 예측 지수</h3>
-                <h1 style="color: {color}; font-size: 45px; margin: 10px 0;">{pred_val:+.2%}</h1>
-                <p style="color: #666; font-size: 14px;">본 수치는 8대 지표를 기반으로 한 <b>KOSPI 기대 수익률</b>입니다.</p>
+                <h3 style="margin: 0; color: #555;">📈 종합 투자 예측 지수: <span style="color:{color}">{pred_val:+.2%}</span></h3>
+                <p style="color: #444; font-size: 14px; margin-top: 10px; line-height: 1.6;">
+                    <b>[수치 해석 방법]</b><br>
+                    본 지수는 8대 글로벌 거시 지표의 실시간 변화를 다중 회귀 모델에 대입하여 산출한 <b>'KOSPI 기대 수익률'</b>입니다.<br>
+                    - <b>방향성:</b> (+)이면 상승 압력, (-)이면 하락 압력이 우세함을 뜻합니다.<br>
+                    - <b>강도:</b> 수치의 절대값이 클수록 글로벌 시장의 에너지가 코스피에 강하게 작용하고 있음을 의미합니다.<br>
+                    <small>* 주의: 이는 통계적 기대값일 뿐 절대적인 상승/하락 확률을 보장하지 않습니다.</small>
+                </p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -101,22 +104,22 @@ try:
     fig, axes = plt.subplots(2, 4, figsize=(24, 14))
     plt.subplots_adjust(hspace=0.6)
 
+    # config 수정: [외인 자금 이탈] 제외하고 구체적 방향 표현
     config = [
-        ('KOSPI', '1. KOSPI 본체', 'MA250 - 1σ', '장기 추세 붕괴'),
-        ('Exchange', '2. 원/달러 환율', 'MA250 + 1.5σ', '외인 자금 이탈'),
-        ('SOX_lag1', '3. 미 반도체(SOX)', 'MA250 - 1σ', 'IT 공급망 위기'),
-        ('SP500', '4. 미 S&P 500', 'MA250 - 0.5σ', '글로벌 심리 위축'),
-        ('VIX', '5. 공포지수(VIX)', '20.0', '시장 패닉 진입'),
-        ('China', '6. 상하이 종합', 'MA250 - 1.5σ', '아시아권 경기 침체'),
-        ('Yield_Spread', '7. 장단기 금리차', '0.0', '경제 불황 전조'),
-        ('US10Y', '8. 미 국채 10Y', 'MA250 + 1σ', '유동성 긴축 압박')
+        ('KOSPI', '1. KOSPI 본체', 'MA250 - 1σ', '선 아래로 하향 시 [추세 붕괴]'),
+        ('Exchange', '2. 원/달러 환율', 'MA250 + 1.5σ', '선 위로 상향 시 [외인 자금 이탈]'),
+        ('SOX_lag1', '3. 미 반도체(SOX)', 'MA250 - 1σ', '선 아래로 하향 시 [IT 공급망 위기]'),
+        ('SP500', '4. 미 S&P 500', 'MA250 - 0.5σ', '선 아래로 하향 시 [글로벌 심리 위축]'),
+        ('VIX', '5. 공포지수(VIX)', '20.0', '선 위로 상향 시 [시장 패닉 진입]'),
+        ('China', '6. 상하이 종합', 'MA250 - 1.5σ', '선 아래로 하향 시 [아시아권 경기 침체]'),
+        ('Yield_Spread', '7. 장단기 금리차', '0.0', '선 아래로 하향 시 [경제 불황 전조]'),
+        ('US10Y', '8. 미 국채 10Y', 'MA250 + 1σ', '선 위로 상향 시 [유동성 긴축 압박]')
     ]
 
     for i, (col, title, th_label, warn_text) in enumerate(config):
         ax = axes[i // 4, i % 4]
-        plot_data = df[col].tail(100) # 더 넓은 시계열로 날짜 변화 확인
+        plot_data = df[col].tail(100)
         
-        # 위험선 계산
         ma = df[col].rolling(window=250).mean().iloc[-1]
         std = df[col].rolling(window=250).std().iloc[-1]
         if col == 'Exchange': threshold = ma + (1.5 * std)
@@ -124,27 +127,26 @@ try:
         elif col in ['US10Y']: threshold = ma + std
         else: threshold = ma - std
 
-        # 시각화
         ax.plot(plot_data, color='#34495e', lw=2.5)
         ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
         
-        # [지능형 날짜 포맷 적용]
+        # 지능형 날짜 포맷
         ax.xaxis.set_major_formatter(plt.FuncFormatter(custom_date_formatter))
-        ax.xaxis.set_major_locator(mdates.MonthLocator()) # 월 단위로 눈금 표시
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
-        # 위험선 근거 표기
         ax.set_title(title, fontproperties=fprop, fontsize=16, fontweight='bold', pad=10)
         ax.text(plot_data.index[0], threshold, f"근거: {th_label}", 
                 fontproperties=fprop, color='#e74c3c', va='bottom', fontsize=10, backgroundcolor='#ffffff')
 
-        # 전문 진단 설명 (하단 xlabel 활용)
+        # 하단 전문 진단 가이드 (수정된 문구 적용)
         safe_th = threshold if threshold != 0 else 1
         dist = abs(plot_data.iloc[-1] - threshold) / abs(safe_th)
-        ax.set_xlabel(f"위험선 대비 거리: {dist:.1%} | 이탈 시 [{warn_text}]", fontproperties=fprop, fontsize=11, color='#555')
+        ax.set_xlabel(f"위험선 대비 거리: {dist:.1%} | {warn_text}", fontproperties=fprop, fontsize=11, color='#c0392b')
         
         for label in (ax.get_xticklabels() + ax.get_yticklabels()):
             label.set_fontproperties(fprop)
 
+    plt.tight_layout()
     st.pyplot(fig)
 
 except Exception as e:
