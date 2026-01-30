@@ -2,10 +2,7 @@ streamlit
 pandas
 numpy
 yfinance
-FinanceDataReader
 pykrx
 statsmodels
-beautifulsoup4
-requests
 matplotlib
 setuptools
