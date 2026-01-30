@@ -8,3 +8,4 @@ statsmodels
 beautifulsoup4
 requests
 matplotlib
+setuptools
