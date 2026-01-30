@@ -12,8 +12,6 @@ try:
     import statsmodels.api as sm
     import matplotlib.pyplot as plt
     from datetime import datetime, timedelta
-    import requests
-    from bs4 import BeautifulSoup
 except ImportError as e:
     st.error(f"라이브러리 로드 실패: {e}")
     st.info("이 에러는 GitHub의 'requirements.txt' 파일이 없거나 잘못되었을 때 발생합니다.")
@@ -61,4 +59,5 @@ def get_data():
 # 모델링 및 시각화 (중략 - 이전 코드와 동일한 구조 유지)
 data = get_data()
 st.success("데이터 로드 성공!")
+
 st.line_chart(data[['종가', 'USD_KRW']]) # 테스트용 차트
