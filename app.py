@@ -20,7 +20,6 @@ def save_prediction_history(date_str, pred_val, actual_close, prev_close):
     """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지"""
     pred_close = prev_close * (1 + pred_val)
     diff = actual_close - pred_close 
-    
     new_data = pd.DataFrame([[
         date_str, f"{pred_val:.4%}", f"{pred_close:,.2f}", f"{actual_close:,.2f}",
         f"{diff:,.2f}", datetime.now().strftime('%H:%M:%S')
@@ -92,8 +91,8 @@ def get_analysis(df):
     
     abs_coeffs = np.abs(model.params.drop(['const', 'SOX_SP500']))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
-    # 에러 방지를 위해 컬럼명 정보를 포함하여 반환
-    return model, contribution, X.mean(), X.std(), X_final.columns.tolist()
+    # 행렬 연산을 위해 계수 딕셔너리 및 정규화 파라미터 반환
+    return model, contribution, X.mean(), X.std()
 
 def custom_date_formatter(x, pos):
     dt = mdates.num2date(x)
@@ -101,23 +100,26 @@ def custom_date_formatter(x, pos):
 
 try:
     df = load_expert_data()
-    model, contribution_pct, train_mean, train_std, model_cols = get_analysis(df)
+    model, contribution_pct, train_mean, train_std = get_analysis(df)
     
-    # --- 데이터 계산 영역 (예측 로직 강화) ---
-    def predict_return(target_mean_series):
+    # --- 데이터 계산 영역 (계수 직접 연산 방식으로 변경하여 에러 원천 차단) ---
+    def manual_predict(target_mean_series):
         # 1. 정규화
         scaled = (target_mean_series[contribution_pct.index] - train_mean) / train_std
-        # 2. 상호작용항 및 상수항 생성
-        scaled_df = scaled.to_frame().T
-        scaled_df['SOX_SP500'] = scaled_df['SOX_lag1'] * scaled_df['SP500']
-        scaled_df['const'] = 1.0
-        # 3. 모델 컬럼 순서와 완벽 일치시킴
-        return model.predict(scaled_df[model_cols]).iloc[0]
+        # 2. 상호작용항 생성
+        sox_sp500 = scaled['SOX_lag1'] * scaled['SP500']
+        # 3. 모델 계수와 매칭하여 직접 합산 (Constant + Beta*X + Interaction)
+        params = model.params
+        pred_val = params['const']
+        for col in contribution_pct.index:
+            pred_val += params[col] * scaled[col]
+        pred_val += params['SOX_SP500'] * sox_sp500
+        return pred_val
 
-    current_pred_level = predict_return(df.tail(3).mean())
+    current_pred_level = manual_predict(df.tail(3).mean())
     pred_val = (current_pred_level - df['KOSPI'].iloc[-2]) / df['KOSPI'].iloc[-2]
     
-    mid_pred_level = predict_return(df.tail(20).mean())
+    mid_pred_level = manual_predict(df.tail(20).mean())
     mid_pred_val = (mid_pred_level - df['KOSPI'].tail(20).iloc[0]) / df['KOSPI'].tail(20).iloc[0]
 
     r2 = model.rsquared
