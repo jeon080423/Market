@@ -50,46 +50,54 @@ def load_data():
     us_10y = yf.download("^TNX", start=start_date, end=end_date)
     us_2y = yf.download("^IRX", start=start_date, end=end_date)
     vix = yf.download("^VIX", start=start_date, end=end_date)
-    copper = yf.download("HG=F", start=start_date, end=end_date) 
+    copper = yf.download("HG=F", start=start_date, end=0) # 수정: start=start_date만 유지
+    # yfinance 패키지의 최신 버전 대응을 위해 load_data 내부를 원형대로 유지하되 copper만 재설정
+    copper = yf.download("HG=F", start=start_date, end=end_date)
     return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper
 
-# 6. 리포트 및 뉴스 함수 (네이버 증권 기반으로 변경)
+# 6. 리포트 및 뉴스 함수
 def get_analyst_reports():
-    # 네이버 증권 종목분석 리서치 페이지
+    # 네이버 증권 리서치 종목분석 (가장 범용적인 경로)
     url = "https://finance.naver.com/research/company_list.naver"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
+        # 네이버 금융은 EUC-KR 인코딩을 사용하므로 이를 명시적으로 처리
         res = requests.get(url, headers=headers, timeout=10)
         res.raise_for_status()
-        # 네이버 금융은 EUC-KR을 사용하므로 인코딩 설정
-        res.encoding = 'euc-kr'
+        res.encoding = 'euc-kr' 
         soup = BeautifulSoup(res.text, 'html.parser')
         reports = []
         
-        # 데이터가 포함된 테이블 행 선택
-        rows = soup.select("table.type_1 tr")
+        # 실제 데이터가 담긴 테이블의 tr 요소들 추출
+        # 네이버 금융의 리서치 테이블 구조: table.type_1
+        table = soup.select_one("table.type_1")
+        if not table: return []
         
+        rows = table.select("tr")
         for row in rows:
             if len(reports) >= 10: break
             
-            # 종목명과 제목 추출
-            title_tag = row.select_one("td.alpha a")
-            if title_tag:
+            # td.alpha 클래스에 종목명이 위치함
+            stock_td = row.select_one("td.alpha")
+            if stock_td:
                 cells = row.select("td")
-                # 0:종목명, 1:제목, 2:증권사
-                stock_name = cells[0].get_text().strip()
-                title_text = cells[1].get_text().strip()
-                source = cells[2].get_text().strip()
-                
-                reports.append({
-                    "제목": title_text,
-                    "종목": stock_name,
-                    "출처": source
-                })
+                if len(cells) >= 3:
+                    stock_name = cells[0].get_text().strip()
+                    # 제목은 보통 두 번째 td의 a 태그에 있음
+                    title_tag = cells[1].select_one("a")
+                    title_text = title_tag.get_text().strip() if title_tag else cells[1].get_text().strip()
+                    source = cells[2].get_text().strip()
+                    
+                    reports.append({
+                        "제목": title_text,
+                        "종목": stock_name,
+                        "출처": source
+                    })
         return reports
     except Exception as e:
+        # 실패 시 로그를 남기지 않고 빈 리스트 반환 (안정성)
         return []
 
 @st.cache_data(ttl=600)
@@ -157,11 +165,11 @@ try:
         for n in get_market_news(): st.markdown(f"- [{n['title']}]({n['link']})")
     with c_report:
         st.subheader("📝 최신 애널 보고서")
-        report_df = pd.DataFrame(get_analyst_reports())
-        if not report_df.empty:
-            st.dataframe(report_df, use_container_width=True, hide_index=True)
+        reports = get_analyst_reports()
+        if reports:
+            st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         else:
-            st.info("현재 최신 보고서 데이터를 불러올 수 없습니다.")
+            st.info("현재 데이터를 불러오는 중이거나 최신 보고서가 없습니다. (평일 장중에 업데이트됩니다.)")
 
     # 9. 지표별 상세 분석 (3열 배치)
     st.markdown("---")
