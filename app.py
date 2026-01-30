@@ -89,13 +89,11 @@ try:
             return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
         except: return 50.0
 
-    # 신규 수리 모델: 시차 상관관계 및 머신러닝 중요도 산출
     @st.cache_data(ttl=3600)
     def calculate_ml_lagged_weights(_ks_s, _sp_s, _fx_s, _b10_s, _cp_s, _ma20, _vx_s):
-        dates = _ks_s.index[-260:] # 시차 계산을 위해 조금 더 긴 범위 확보
+        dates = _ks_s.index[-260:]
         data_rows = []
         
-        # 각 변수별 최적 시차(Lag) 계산 (최대 5일)
         def get_best_lag(feature, target, max_lag=5):
             lags = []
             for l in range(max_lag + 1):
@@ -123,10 +121,8 @@ try:
         X = (df_reg.iloc[:, :4] - df_reg.iloc[:, :4].mean()) / df_reg.iloc[:, :4].std()
         Y = (df_reg['KOSPI'] - df_reg['KOSPI'].mean()) / df_reg['KOSPI'].std()
         
-        # ML Feature Importance (Non-linear 기여도 산출 로직)
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
         abs_coeffs = np.abs(coeffs)
-        # 변동성 가중치 보정
         vol_adj = X.std().values
         final_importance = abs_coeffs * vol_adj
         return final_importance / np.sum(final_importance)
@@ -268,7 +264,8 @@ try:
 
     r1_c1, r1_c2, r1_c3 = st.columns(3)
     with r1_c1:
-        st.plotly_chart(create_chart(sp__s if 'sp_s' in locals() else sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
+        # 오류 부분 수정: sp__s -> sp_s
+        st.plotly_chart(create_chart(sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
         st.info("**미국 지수**: KOSPI와 가장 강한 정(+)의 상관성을 보입니다.")
     with r1_c2:
         fx_th = float(fx_s.last('365D').mean() * 1.02)
