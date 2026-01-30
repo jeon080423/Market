@@ -6,6 +6,7 @@ import yfinance as yf
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import os
 
@@ -22,28 +23,24 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 시스템", layout="wide")
+st.set_page_config(page_title="KOSPI 정밀 진단 v2.6", layout="wide")
 
-# [데이터 수집] 개별 수집을 통해 멀티인덱스 에러 방지
+# [데이터 수집] 개별 수집으로 멀티인덱스 에러 방지
 @st.cache_data(ttl=300)
 def load_expert_data():
     tickers = {
         '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
         '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y'
     }
-    
     start_date = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
     combined_df = pd.DataFrame()
 
     for ticker, name in tickers.items():
         try:
-            # 과거 데이터와 실시간 데이터를 안전하게 개별 수집
             raw = yf.download(ticker, start=start_date, interval='1d', progress=False)
             if not raw.empty:
-                # 최신 장중가 업데이트
                 rt = yf.download(ticker, period='1d', interval='1m', progress=False)
                 val = rt['Close'].iloc[-1] if not rt.empty else raw['Close'].iloc[-1]
-                
                 series = raw['Close'].copy()
                 series.iloc[-1] = val
                 combined_df[name] = series
@@ -53,7 +50,6 @@ def load_expert_data():
     df = combined_df.ffill().interpolate()
     df['SOX_lag1'] = df['SOX'].shift(1)
     df['Yield_Spread'] = df['US10Y'] - df['US2Y']
-    
     return df.dropna().tail(300)
 
 # [분석] 영향도 100% 산출
@@ -64,27 +60,36 @@ def get_analysis(df):
     X = (returns[features] - returns[features].mean()) / returns[features].std()
     X = sm.add_constant(X)
     model = sm.OLS(y, X).fit()
-    
     abs_coeffs = np.abs(model.params.drop('const'))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
     return model, contribution
 
-# [UI 구현]
-st.title("🏛️ KOSPI 8대 지표 정밀 진단 시스템")
+# [사용자 정의 날짜 포맷터]
+def custom_date_formatter(x, pos):
+    dt = mdates.num2date(x)
+    if dt.month == 1:
+        return dt.strftime('%Y/%m')
+    else:
+        return dt.strftime('%m')
 
 try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 예측 및 비중 표
+    # 상단 정보 섹션
     c1, c2 = st.columns([1, 1.5])
     with c1:
         current_chg = (df.iloc[-1] / df.iloc[-2] - 1)
         pred_input = [1] + [current_chg[f] for f in contribution_pct.index]
         pred_val = model.predict(pred_input)[0]
-        
-        st.metric("종합 투자 예측 지수 (기대수익률)", f"{pred_val:+.2%}")
-        st.write("**💡 수치 해석:** 8대 지표의 에너지를 종합한 코스피 방향성입니다.")
+        color = "#e74c3c" if pred_val < 0 else "#2ecc71"
+        st.markdown(f"""
+            <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h3 style="margin: 0; color: #555;">종합 투자 예측 지수</h3>
+                <h1 style="color: {color}; font-size: 45px; margin: 10px 0;">{pred_val:+.2%}</h1>
+                <p style="color: #666; font-size: 14px;">본 수치는 8대 지표를 기반으로 한 <b>KOSPI 기대 수익률</b>입니다.</p>
+            </div>
+        """, unsafe_allow_html=True)
         
     with c2:
         st.subheader("📊 지표별 KOSPI 영향력 비중")
@@ -92,8 +97,9 @@ try:
 
     st.divider()
 
-    # 하단 8대 지표 그래프 (2행 4열)
-    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+    # 하단 그래프 (2행 4열)
+    fig, axes = plt.subplots(2, 4, figsize=(24, 14))
+    plt.subplots_adjust(hspace=0.6)
 
     config = [
         ('KOSPI', '1. KOSPI 본체', 'MA250 - 1σ', '장기 추세 붕괴'),
@@ -108,7 +114,7 @@ try:
 
     for i, (col, title, th_label, warn_text) in enumerate(config):
         ax = axes[i // 4, i % 4]
-        plot_data = df[col].tail(60)
+        plot_data = df[col].tail(100) # 더 넓은 시계열로 날짜 변화 확인
         
         # 위험선 계산
         ma = df[col].rolling(window=250).mean().iloc[-1]
@@ -119,22 +125,26 @@ try:
         else: threshold = ma - std
 
         # 시각화
-        ax.plot(plot_data, color='#34495e', lw=2)
-        ax.axhline(y=threshold, color='#e74c3c', ls='--')
+        ax.plot(plot_data, color='#34495e', lw=2.5)
+        ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
+        
+        # [지능형 날짜 포맷 적용]
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(custom_date_formatter))
+        ax.xaxis.set_major_locator(mdates.MonthLocator()) # 월 단위로 눈금 표시
         
         # 위험선 근거 표기
-        ax.set_title(title, fontproperties=fprop, fontsize=14, fontweight='bold')
+        ax.set_title(title, fontproperties=fprop, fontsize=16, fontweight='bold', pad=10)
         ax.text(plot_data.index[0], threshold, f"근거: {th_label}", 
-                fontproperties=fprop, color='#e74c3c', va='bottom', fontsize=10)
+                fontproperties=fprop, color='#e74c3c', va='bottom', fontsize=10, backgroundcolor='#ffffff')
 
-        # 전문 진단 텍스트 (단순화 버전)
-        dist = abs(plot_data.iloc[-1] - threshold) / (abs(threshold) if threshold != 0 else 1)
-        ax.set_xlabel(f"위험선까지 거리: {dist:.1%}\n이탈 시 [{warn_text}] 판단", fontproperties=fprop, fontsize=10)
+        # 전문 진단 설명 (하단 xlabel 활용)
+        safe_th = threshold if threshold != 0 else 1
+        dist = abs(plot_data.iloc[-1] - threshold) / abs(safe_th)
+        ax.set_xlabel(f"위험선 대비 거리: {dist:.1%} | 이탈 시 [{warn_text}]", fontproperties=fprop, fontsize=11, color='#555')
         
         for label in (ax.get_xticklabels() + ax.get_yticklabels()):
             label.set_fontproperties(fprop)
 
-    plt.tight_layout()
     st.pyplot(fig)
 
 except Exception as e:
