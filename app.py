@@ -34,11 +34,8 @@ def save_prediction_history(date_str, pred_val, actual_close, prev_close):
         try:
             history_df = pd.read_csv(HISTORY_FILE)
             if date_str not in history_df["날짜"].values:
-                # 장 마감 시간(15:30) 이후이거나 데이터가 아직 없는 경우에만 누적
                 current_time = datetime.now().time()
                 market_close = datetime.strptime("15:30", "%H:%M").time()
-                
-                # 장 마감 후에만 신규 데이터를 최종 확정하여 저장
                 if current_time >= market_close:
                     history_df = pd.concat([history_df, new_data], ignore_index=True)
                     history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
@@ -66,14 +63,16 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 v2.8", layout="wide")
+st.set_page_config(page_title="KOSPI 인텔리전스 진단 시스템 v3.0", layout="wide")
 
 # [데이터 수집] 개별 수집으로 안정성 확보 및 에러 핸들링 강화
 @st.cache_data(ttl=900)
 def load_expert_data():
+    # 8대 핵심 지표 + 업종 분석용 티커 추가
     tickers = {
         '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
-        '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y'
+        '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y',
+        '005930.KS': 'Samsung', '000660.KS': 'Hynix', '005380.KS': 'Hyundai', '373220.KS': 'LG_Energy'
     }
     start_date = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
     combined_df = pd.DataFrame()
@@ -87,7 +86,7 @@ def load_expert_data():
                 series = raw['Close'].copy()
                 series.iloc[-1] = val
                 combined_df[name] = series
-        except Exception as e:
+        except:
             continue
     
     if combined_df.empty:
@@ -120,24 +119,56 @@ try:
     df = load_expert_data()
     model, contribution_pct = get_analysis(df)
     
-    # 상단 요약 가이드 섹션 (3컬럼 구조 복원)
+    # --- 1. 상단 AI 마켓 브리핑 및 리스크 가이드 ---
+    st.title("🏛️ KOSPI 인텔리전스 진단 시스템 v3.0")
+    
+    # 데이터 가공
+    current_data = df.tail(3).mean()
+    mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
+    current_scaled = (current_data[contribution_pct.index] - mu) / std
+    current_scaled['SOX_SP500'] = current_scaled['SOX_lag1'] * current_scaled['SP500']
+    pred_val_level = model.predict([1] + current_scaled.tolist())[0]
+    prev_val_level = df['KOSPI'].iloc[-2]
+    pred_val = (pred_val_level - prev_val_level) / prev_val_level
+    
+    mid_term_df = df.tail(20).mean()
+    mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
+    mid_scaled['SOX_SP500'] = mid_scaled['SOX_lag1'] * mid_scaled['SP500']
+    mid_pred_level = model.predict([1] + mid_scaled.tolist())[0]
+    mid_start_level = df['KOSPI'].tail(20).iloc[0]
+    mid_pred_val = (mid_pred_level - mid_start_level) / mid_start_level
+
+    # 로컬 히스토리 기반 신뢰도 계산 (기능 3)
+    history_df = load_prediction_history()
+    if not history_df.empty:
+        history_df['오차수치'] = pd.to_numeric(history_df['예측 오차'].str.replace(',', ''), errors='coerce').abs()
+        mae = history_df['오차수치'].tail(5).mean()
+        reliability = "높음" if mae < 20 else "보통" if mae < 40 else "주의"
+        rel_color = "#2ecc71" if reliability == "높음" else "#f1c40f" if reliability == "보통" else "#e74c3c"
+    else:
+        reliability, rel_color = "데이터 부족", "#888"
+
+    # AI 한 줄 진단 (기능 5)
+    main_driver = contribution_pct.idxmax()
+    market_mood = "우호적" if pred_val > 0 else "경계적"
+    ai_summary = f"현재 시장은 **{main_driver}**의 영향력이 가장 강력하며, 단기적으로 **{market_mood}**인 흐름이 감지됩니다. 모델 신뢰도는 **{reliability}** 수준입니다."
+
+    header_c1, header_c2 = st.columns([2, 1])
+    with header_c1:
+        st.info(f"🤖 **AI 마켓 브리핑:** {ai_summary}")
+    with header_c2:
+        # 현금 비중 가이드 (기능 2)
+        cash_ratio = 10 if pred_val > 0.005 else 30 if pred_val > 0 else 60 if pred_val > -0.005 else 90
+        st.metric("추천 현금 비중", f"{cash_ratio}%", delta=f"{'방어' if cash_ratio > 50 else '공격'} 포지션")
+
+    st.divider()
+
+    # --- 2. 기존 기대수익률 및 전략 섹션 ---
     c1, c2, c3 = st.columns([1.1, 1.1, 1.3])
     
     with c1:
-        # 단기 예측 로직
-        current_data = df.tail(3).mean()
-        mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
-        current_scaled = (current_data[contribution_pct.index] - mu) / std
-        current_scaled['SOX_SP500'] = current_scaled['SOX_lag1'] * current_scaled['SP500']
-        
-        pred_val_level = model.predict([1] + current_scaled.tolist())[0]
-        prev_val_level = df['KOSPI'].iloc[-2]
-        pred_val = (pred_val_level - prev_val_level) / prev_val_level
-        
-        # 히스토리 저장
         today_str = datetime.now().strftime('%Y-%m-%d')
         save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1], prev_val_level)
-        
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
         st.markdown(f"""
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px;">
@@ -150,10 +181,7 @@ try:
                 </p>
             </div>
         """, unsafe_allow_html=True)
-
-        # [이동] 예측 히스토리를 KOSPI 기대 수익률 밑으로 배치
         st.write("") 
-        history_df = load_prediction_history()
         if not history_df.empty:
             st.markdown(f"""
                 <div style="padding: 15px; border-radius: 10px; border: 1px solid #eee; background-color: #f9f9f9; max-height: 250px; overflow-y: auto;">
@@ -163,16 +191,7 @@ try:
             """, unsafe_allow_html=True)
 
     with c2:
-        # [복원] 중기 예측 로직 (최근 20거래일 추세)
-        mid_term_df = df.tail(20).mean()
-        mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
-        mid_scaled['SOX_SP500'] = mid_scaled['SOX_lag1'] * mid_scaled['SP500']
-        
-        mid_pred_level = model.predict([1] + mid_scaled.tolist())[0]
-        mid_start_level = df['KOSPI'].tail(20).iloc[0]
-        mid_pred_val = (mid_pred_level - mid_start_level) / mid_start_level
         mid_color = "#e74c3c" if mid_pred_val < 0 else "#2ecc71"
-        
         st.markdown(f"""
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {mid_color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px;">
                 <h3 style="margin: 0; color: #555;">📅 중기 투자 전망: <span style="color:{mid_color}">{mid_pred_val:+.2%}</span></h3>
@@ -184,10 +203,7 @@ try:
                 </p>
             </div>
         """, unsafe_allow_html=True)
-
-        # [신규 추가] 실시간 매매 전략 신호 가이드 및 판단 이유
         st.write("")
-        # 전략 신호 판단 로직 (괄호 내용 삭제)
         if pred_val < -0.005 and mid_pred_val < 0:
             signal, s_color = "🔴 즉시 매도", "#ff4b4b"
             reason = "단기 기대수익률이 -0.5%를 하회하며 급락 신호가 발생했고, 중기 추세 에너지 역시 음수(-)로 전환되어 하락 압력이 극에 달한 상태입니다. 리스크 관리를 위해 즉각적인 비중 축소가 권고됩니다."
@@ -201,7 +217,6 @@ try:
             signal, s_color = "⚪ 보유 및 관망", "#888"
             reason = "단기 변동성과 중기 추세가 혼조세를 보이거나 뚜렷한 방향성을 나타내지 않고 있습니다. 지표가 위험선에 근접할 때까지 추가적인 시장 관망이 필요한 중립 단계입니다."
 
-        # 신호와 이유의 폭을 넓히기 위해 컬럼 조정 (폭 확대)
         sc1, sc2 = st.columns([1.1, 1.4])
         with sc1:
             st.markdown(f"""
@@ -219,17 +234,23 @@ try:
             """, unsafe_allow_html=True)
         
     with c3:
+        # 업종별 순환매 분석 (기능 1)
+        st.subheader("🔄 주도 업종 순환매 분석")
+        sector_returns = df[['Samsung', 'Hynix', 'Hyundai', 'LG_Energy']].pct_change(5).iloc[-1] * 100
+        sector_df = pd.DataFrame(sector_returns).rename(columns={sector_returns.name: '5일 수익률(%)'})
+        st.bar_chart(sector_df)
+        
         st.subheader("📊 지표별 KOSPI 영향력 비중")
         def highlight_max(s):
             is_max = s == s.max()
             return ['color: red; font-weight: bold' if v else '' for v in is_max]
         cont_df = pd.DataFrame(contribution_pct).T
         st.table(cont_df.style.format("{:.1f}%").apply(highlight_max, axis=1))
-        st.caption(f"모델 설명력(R²): {model.rsquared:.2%}")
+        st.caption(f"모델 설명력(R²): {model.rsquared:.2%} | 분석 신뢰도: {reliability}")
 
     st.divider()
 
-    # 하단 그래프 영역 (기존 유지)
+    # --- 3. 8대 지표 그래프 영역 ---
     fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     plt.subplots_adjust(hspace=0.4)
     config = [
@@ -248,7 +269,6 @@ try:
         plot_data = df[col].tail(100)
         ma = df[col].rolling(window=250).mean().iloc[-1]
         std = df[col].rolling(window=250).std().iloc[-1]
-        
         if col == 'Exchange': threshold = ma + (1.5 * std)
         elif col in ['VIX', 'Yield_Spread']: threshold = float(th_label)
         elif col in ['US10Y']: threshold = ma + std
@@ -256,19 +276,14 @@ try:
         
         ax.plot(plot_data, color='#34495e', lw=2.5)
         ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
-        
         ax.xaxis.set_major_formatter(plt.FuncFormatter(custom_date_formatter))
         ax.xaxis.set_major_locator(mdates.MonthLocator())
-        
         ax.set_title(title, fontproperties=fprop, fontsize=16, fontweight='bold', pad=10)
         ax.text(plot_data.index[0], threshold, f"근거: {th_label}", 
                 fontproperties=fprop, color='#e74c3c', va='bottom', fontsize=10, backgroundcolor='#ffffff')
-
-        # [복원] 전문 진단 설명 (위험선 대비 거리 및 판단 내용)
         safe_th = threshold if threshold != 0 else 1
         dist = abs(plot_data.iloc[-1] - threshold) / abs(safe_th)
         ax.set_xlabel(f"위험선 대비 거리: {dist:.1%} | {warn_text}", fontproperties=fprop, fontsize=11, color='#c0392b')
-        
         for label in (ax.get_xticklabels() + ax.get_yticklabels()):
             label.set_fontproperties(fprop)
 
