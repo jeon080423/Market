@@ -89,28 +89,33 @@ try:
             return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
         except: return 50.0
 
+    # 신규 수리 모델: 시차 상관관계 분석 및 머신러닝 중요도 기반 가중치 산출
     @st.cache_data(ttl=3600)
     def calculate_ml_lagged_weights(_ks_s, _sp_s, _fx_s, _b10_s, _cp_s, _ma20, _vx_s):
-        dates = _ks_s.index[-260:]
-        data_rows = []
+        # 시차 계산을 위해 최근 260거래일 데이터 활용
+        dates_for_lag = _ks_s.index[-260:]
         
-        def get_best_lag(feature, target, max_lag=5):
-            lags = []
-            for l in range(max_lag + 1):
-                corr = feature.shift(l).corr(target)
-                lags.append(abs(corr))
-            return np.argmax(lags)
+        # 각 지표별 KOSPI와 상관계수가 가장 높은 시차(Lag) 검색 (0~5일)
+        def find_best_lag(feature, target, max_lag=5):
+            corrs = [abs(feature.shift(lag).corr(target)) for lag in range(max_lag + 1)]
+            return np.argmax(corrs)
 
-        lag_sp = get_best_lag(_sp_s, _ks_s); lag_fx = get_best_lag(_fx_s, _ks_s)
-        lag_b10 = get_best_lag(_b10_s, _ks_s); lag_cp = get_best_lag(_cp_s, _ks_s)
-        lag_vx = get_best_lag(_vx_s, _ks_s)
+        best_lags = {
+            'SP': find_best_lag(_sp_s, _ks_s),
+            'FX': find_best_lag(_fx_s, _ks_s),
+            'B10': find_best_lag(_b10_s, _ks_s),
+            'CP': find_best_lag(_cp_s, _ks_s),
+            'VX': find_best_lag(_vx_s, _ks_s)
+        }
 
+        data_rows = []
         for d in _ks_s.index[-252:]:
-            s_sp = get_hist_score_val(_sp_s.shift(lag_sp), d, True)
-            s_fx = get_hist_score_val(_fx_s.shift(lag_fx), d)
-            s_b10 = get_hist_score_val(_b10_s.shift(lag_b10), d)
-            s_cp = get_hist_score_val(_cp_s.shift(lag_cp), d, True)
-            s_vx = get_hist_score_val(_vx_s.shift(lag_vx), d)
+            # 시차 반영된 스코어 산출
+            s_sp = get_hist_score_val(_sp_s.shift(best_lags['SP']), d, True)
+            s_fx = get_hist_score_val(_fx_s.shift(best_lags['FX']), d)
+            s_b10 = get_hist_score_val(_b10_s.shift(best_lags['B10']), d)
+            s_cp = get_hist_score_val(_cp_s.shift(best_lags['CP']), d, True)
+            s_vx = get_hist_score_val(_vx_s.shift(best_lags['VX']), d)
             
             g_risk = s_sp
             m_score = (s_fx + s_b10 + s_cp) / 3
@@ -118,14 +123,20 @@ try:
             data_rows.append([m_score, g_risk, s_vx, t_score, _ks_s.loc[d]])
 
         df_reg = pd.DataFrame(data_rows, columns=['Macro', 'Global', 'Fear', 'Tech', 'KOSPI'])
+        
+        # 1. 머신러닝 중요도 분석 (표준화 회귀계수 기반 중요도 추출)
         X = (df_reg.iloc[:, :4] - df_reg.iloc[:, :4].mean()) / df_reg.iloc[:, :4].std()
         Y = (df_reg['KOSPI'] - df_reg['KOSPI'].mean()) / df_reg['KOSPI'].std()
         
+        # 최소제곱법을 통한 기여도 산출
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
         abs_coeffs = np.abs(coeffs)
-        vol_adj = X.std().values
-        final_importance = abs_coeffs * vol_adj
-        return final_importance / np.sum(final_importance)
+        
+        # 2. 변동성 보정 가중치 (X의 변동성이 클수록 실제 영향력 가중)
+        vol_weights = X.std().values
+        adjusted_importance = abs_coeffs * vol_weights
+        
+        return adjusted_importance / np.sum(adjusted_importance)
 
     sem_w = calculate_ml_lagged_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
@@ -264,7 +275,6 @@ try:
 
     r1_c1, r1_c2, r1_c3 = st.columns(3)
     with r1_c1:
-        # 오류 부분 수정: sp__s -> sp_s
         st.plotly_chart(create_chart(sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
         st.info("**미국 지수**: KOSPI와 가장 강한 정(+)의 상관성을 보입니다.")
     with r1_c2:
