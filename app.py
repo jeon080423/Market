@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
+import pandas_datareader.data as web  # 경제 지표 수집용
 
 # 1. 페이지 설정
 st.set_page_config(page_title="주식 시장 하락 전조 신호 모니터링", layout="wide")
@@ -20,7 +21,7 @@ except ImportError:
 # 2. 고정 NewsAPI Key 설정
 NEWS_API_KEY = "13cfedc9823541c488732fb27b02fa25"
 
-# 코로나19 폭락 기점 날짜 정의 (S&P 500 고점 기준)
+# S&P 500 폭락 기점 날짜 정의 (COVID-19 팬데믹 정점)
 COVID_EVENT_DATE = "2020-02-19"
 
 # 3. 제목 및 설명
@@ -35,6 +36,8 @@ st.markdown(f"""
 def load_data():
     end_date = datetime.now()
     start_date = "2019-01-01"
+    
+    # 시장 데이터 (Yahoo Finance)
     kospi = yf.download("^KS11", start=start_date, end=end_date)
     sp500 = yf.download("^GSPC", start=start_date, end=end_date)
     nikkei = yf.download("^N225", start=start_date, end=end_date)
@@ -44,17 +47,31 @@ def load_data():
     vix = yf.download("^VIX", start=start_date, end=end_date)
     copper = yf.download("HG=F", start=start_date, end=end_date)
     freight = yf.download("BDRY", start=start_date, end=end_date)
-    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight
+    
+    # 경제 지표 데이터 (FRED)
+    try:
+        # 미국 주간 실업수당 청구 건수 (ICSA)
+        us_unemployment_claims = web.DataReader("ICSA", "fred", start_date, end_date)
+        # 한국 실업자 수 (LRUN64TTKRM156S - Harmonized, 15-64세)
+        kr_unemployment = web.DataReader("LRUN64TTKRM156S", "fred", start_date, end_date)
+    except:
+        us_unemployment_claims = pd.DataFrame()
+        kr_unemployment = pd.DataFrame()
+        
+    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight, us_unemployment_claims, kr_unemployment
 
 try:
     with st.spinner('시장 데이터 분석 및 가중치 최적화 중...'):
-        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data = load_data()
+        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data, us_claims_data, kr_unemp_data = load_data()
 
     def get_clean_series(df):
         if df is None or df.empty: return pd.Series()
-        df = df[~df.index.duplicated(keep='first')]
-        if isinstance(df.columns, pd.MultiIndex): return df['Close'].iloc[:, 0]
-        return df['Close']
+        if 'Close' in df.columns:
+            series = df['Close']
+        else:
+            series = df.iloc[:, 0]
+        series = series[~series.index.duplicated(keep='first')]
+        return series
 
     ks_s = get_clean_series(kospi)
     sp_s = get_clean_series(sp500).reindex(ks_s.index).ffill()
@@ -65,6 +82,8 @@ try:
     vx_s = get_clean_series(vix_data).reindex(ks_s.index).ffill()
     cp_s = get_clean_series(copper_data).reindex(ks_s.index).ffill()
     fr_s = get_clean_series(freight_data).reindex(ks_s.index).ffill()
+    usc_s = get_clean_series(us_claims_data).reindex(ks_s.index).ffill()
+    kru_s = get_clean_series(kr_unemp_data).reindex(ks_s.index).ffill()
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -120,10 +139,7 @@ try:
     st.sidebar.subheader("📋 가중치 산출 근거 (표준화 회귀분석)")
     st.sidebar.write("""
     본 대시보드의 초기 가중치는 **'표준화 다중 회귀분석(Standardized Multiple Regression)'**을 통해 산출되었습니다.
-    
-    1. **단위 표준화**: 모든 지표(독립변수)와 KOSPI(종속변수)를 평균 0, 표준편차 1로 변환하여 서로 다른 단위 간의 직접 비교를 가능하게 했습니다.
-    2. **기여도 추출**: 최근 1년간의 데이터를 바탕으로 각 지표가 KOSPI 변동에 미치는 통계적 영향력(회귀계수)을 측정했습니다.
-    3. **동적 최적화**: 시장 상황 변화에 따라 KOSPI와 상관성이 높은 지표에 더 높은 비중이 실시간으로 자동 할당됩니다.
+    데이터 전처리 및 영향력 추출 과정을 통해 시장 영향력을 실시간 자동 할당합니다.
     """)
 
     total_w = w_macro + w_tech + w_global + w_fear
@@ -162,9 +178,7 @@ try:
     # 7. 백테스팅 섹션
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
-    st.info("""
-    **백테스팅(Backtesting)**: 과거 데이터를 사용하여 모델의 유효성을 검증하는 과정입니다. 위험 지수가 선행하여 상승했는지 확인하십시오.
-    """)
+    st.info("**백테스팅(Backtesting)**: 과거 데이터를 사용하여 모델의 유효성을 검증하는 과정입니다.")
     
     dates = ks_s.index[-252:]
     hist_risks = []
@@ -187,13 +201,7 @@ try:
     with cb2:
         st.metric("설명력 (R²)", f"{(correlation**2)*100:.1f}%")
         st.metric("상관계수 (Corr)", f"{correlation:.2f}")
-        st.write("""
-        **수치 해석 가이드:**
-        - **-1.0 ~ -0.7**: 하락장 포착 능력 우수
-        - **-0.7 ~ -0.3**: 유의미한 전조 신호
-        - **-0.3 ~ 0.0**: 약한 역상관 (참조용)
-        - **0.0 이상**: 모델 왜곡 가능성
-        """)
+        st.write("""**수치 해석 가이드:** -0.7 이하일수록 하락장 포착 능력이 우수합니다.""")
 
     # 8. 뉴스 및 보고서
     st.markdown("---")
@@ -222,11 +230,8 @@ try:
         fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title))
         fig.add_hline(y=threshold, line_width=2, line_color="red")
         fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
-        
-        # S&P 500 폭락 기점 표시
         fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue")
         fig.add_annotation(x=COVID_EVENT_DATE, y=series.max(), text="S&P 500 폭락 기점(COVID)", showarrow=True, arrowhead=1, font=dict(color="blue"), bgcolor="white", yshift=20)
-        
         fig.update_layout(title=title, height=300, margin=dict(l=10, r=10, t=40, b=10))
         return fig
 
@@ -237,7 +242,7 @@ try:
     with r1_c2:
         fx_th = float(fx_s.last('365D').mean() * 1.02)
         st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
-        st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_th:.1f}원) 상회 시 외국인 자본 유출 압력이 심화됩니다.")
+        st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_th:.1f}원) 상회 시 자본 유출 압력이 심화됩니다.")
     with r1_c3:
         st.plotly_chart(create_chart(cp_s, "실물 경기 지표 (Copper)", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
         st.info("**실물 경기**: 구리 가격 하락은 글로벌 수요 둔화의 선행 신호입니다.")
@@ -254,7 +259,7 @@ try:
         fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
         fig_ks.update_layout(title="KOSPI 최근 1개월 집중 분석", height=300)
         st.plotly_chart(fig_ks, use_container_width=True)
-        st.info("**기술적 분석**: 주가가 20일 이동평균선을 하회할 경우 단기 추세 하락 전환 가능성이 높습니다.")
+        st.info("**기술적 분석**: 주가가 20일 이동평균선을 하회할 경우 하락 전환 가능성이 높습니다.")
     with r2_c3:
         st.plotly_chart(create_chart(vx_s, "VIX 공포 지수", 30, "30 돌파 시 패닉"), use_container_width=True)
         st.info("**VIX 지수**: 지수 급등은 투자 심리 악화와 투매 가능성을 시사합니다.")
@@ -265,32 +270,29 @@ try:
         fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
         st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_th, f"{fr_th} 하향 돌파 시 위험"), use_container_width=True)
         st.info(f"**물동량**: 지지선({fr_th}) 하향 돌파 시 글로벌 경기 수축 신호로 간주합니다.")
+    with r3_c2:
+        # 미국 실업수당 청구 건수 (ICSA) - 증가 시 위험
+        usc_th = round(float(usc_s.last('365D').mean() * 1.15), 0)
+        st.plotly_chart(create_chart(usc_s, "미국 실업수당 청구 건수", usc_th, f"{int(usc_th):,}건 상회 시 위험"), use_container_width=True)
+        st.info("**미국 고용**: 주간 실업수당 청구 건수의 급증은 미국 경기 침체의 핵심 선행 지표입니다.")
+    with r3_c3:
+        # 한국 실업자 수 (Proxy) - 증가 시 위험
+        kru_th = round(float(kru_s.last('365D').mean() * 1.1), 0)
+        st.plotly_chart(create_chart(kru_s, "한국 실업자 수 (Proxy)", kru_th, f"{int(kru_th):,}천명 상회 시 위험"), use_container_width=True)
+        st.info("**국내 고용**: 국내 실업자 수의 추세적 증가는 내수 위축과 기업 이익 감소의 신호입니다.")
 
-    # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석 (새로 추가)
+    # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석
     st.markdown("---")
     st.subheader("📊 S&P 500 vs 글로벌 물동량 지표(BDRY) 표준화 비교 분석")
-    
-    # Z-Score 표준화 계산 (평균=0, 표준편차=1)
     sp_norm = (sp_s - sp_s.mean()) / sp_s.std()
     fr_norm = (fr_s - fr_s.mean()) / fr_s.std()
-    
     fig_norm = go.Figure()
     fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Standardized)", line=dict(color='blue', width=1.5)))
     fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="글로벌 물동량 BDRY (Standardized)", line=dict(color='orange', width=1.5)))
-    
-    # S&P 500 폭락 기점 표시
     fig_norm.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="red")
     fig_norm.add_annotation(x=COVID_EVENT_DATE, y=max(sp_norm.max(), fr_norm.max()), text="S&P 500 폭락 기점(COVID)", showarrow=True, font=dict(color="red"), bgcolor="white")
-    
-    fig_norm.update_layout(
-        title="지수간 동조화 추세 분석 (Z-Score 표준화)",
-        xaxis_title="날짜",
-        yaxis_title="표준화 점수 (Z-Score)",
-        height=500,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
+    fig_norm.update_layout(title="지수간 동조화 추세 분석 (Z-Score 표준화)", xaxis_title="날짜", yaxis_title="표준화 점수 (Z-Score)", height=500, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig_norm, use_container_width=True)
-    st.info("**분석 가이드**: 두 지표의 단위를 통일(Z-Score)하여 변동의 궤적을 겹쳐 보았습니다. 물동량이 주가지수보다 선행하거나 동행하는 구간을 통해 경기 흐름을 예측할 수 있습니다.")
 
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
