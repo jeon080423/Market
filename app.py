@@ -10,7 +10,7 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import os
 
-# [자동 업데이트] 5분
+# [자동 업데이트] 5분 주기
 st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
 
 # [폰트 설정]
@@ -23,55 +23,38 @@ def get_korean_font():
 
 fprop = get_korean_font()
 
-st.set_page_config(page_title="KOSPI 정밀 진단 v2.4", layout="wide")
+st.set_page_config(page_title="KOSPI 정밀 진단 시스템 v2.5", layout="wide")
 
-# [데이터 수집] 멀티인덱스 및 인덱스 충돌 완전 해결
+# [데이터 수집] 멀티인덱스 충돌을 방지하기 위한 개별 수집 로직
 @st.cache_data(ttl=300)
 def load_expert_data():
     tickers = {
-        '^KS11': 'KOSPI', '^SOX': 'SOX', '^GSPC': 'SP500', '^VIX': 'VIX',
-        'USDKRW=X': 'Exchange', '^TNX': 'US10Y', '^IRX': 'US2Y', '000001.SS': 'China'
+        '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
+        '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y'
     }
     
     start_date = (datetime.now() - timedelta(days=600)).strftime('%Y-%m-%d')
-    
-    # 1. 일봉 데이터 수집 (안정적인 데이터 확보)
-    raw = yf.download(list(tickers.keys()), start=start_date, interval='1d', progress=False)
-    
-    # yfinance 버전 이슈에 따른 Multi-index 처리
-    if isinstance(raw.columns, pd.MultiIndex):
-        hist_data = raw['Close']
-    else:
-        hist_data = raw
-    
-    # 2. 실시간 데이터 수집 (개별 다운로드로 인덱스 충돌 방지)
-    current_prices = {}
-    for t in tickers.keys():
+    combined_df = pd.DataFrame()
+
+    # 에러 방지를 위해 지표별로 안전하게 개별 다운로드
+    for ticker, name in tickers.items():
         try:
-            rt = yf.download(t, period='1d', interval='1m', progress=False)
-            if not rt.empty:
-                val = rt['Close'].iloc[-1]
-                prev_val = hist_data[t].dropna().iloc[-1]
-                current_prices[t] = val if abs((val - prev_val) / prev_val) < 0.1 else prev_val
-            else:
-                current_prices[t] = hist_data[t].dropna().iloc[-1]
+            # 과거 데이터 + 최신 장중 데이터 포함 다운로드
+            raw = yf.download(ticker, start=start_date, interval='1d', progress=False)
+            if not raw.empty:
+                series = raw['Close'].copy()
+                # 최신 장중가(1분봉) 확인 및 업데이트
+                rt = yf.download(ticker, period='1d', interval='1m', progress=False)
+                if not rt.empty:
+                    series.iloc[-1] = rt['Close'].iloc[-1]
+                combined_df[name] = series
         except:
-            current_prices[t] = hist_data[t].dropna().iloc[-1]
+            continue
 
-    # 3. 데이터 결합 및 날짜 보정
-    df = hist_data.copy()
-    today_ts = pd.Timestamp(datetime.now().date())
-    
-    if df.index[-1].date() == today_ts.date():
-        for t, price in current_prices.items(): df.at[df.index[-1], t] = price
-    else:
-        new_row = pd.Series(current_prices)
-        new_row.name = pd.Timestamp(datetime.now())
-        df = pd.concat([df, pd.DataFrame([new_row])])
-
-    df = df.rename(columns=tickers).ffill().interpolate(method='linear')
+    # 데이터 보정 및 파생 변수 생성
+    df = combined_df.ffill().interpolate(method='linear')
     df['SOX_lag1'] = df['SOX'].shift(1)
-    df['Yield_Spread'] = (df['US10Y'] - df['US2Y'])
+    df['Yield_Spread'] = df['US10Y'] - df['US2Y']
     
     return df.dropna().tail(300)
 
@@ -109,7 +92,7 @@ try:
                 <h3 style="margin: 0; color: #555;">종합 투자 예측 지수</h3>
                 <h1 style="color: {color}; font-size: 50px; margin: 10px 0;">{pred_val:+.2%}</h1>
                 <p style="color: #666; font-size: 14px; line-height: 1.5;">
-                    <b>💡 해석:</b> 8대 지표를 기반으로 한 <b>KOSPI 기대 수익률</b>입니다. (+)는 상승 압력, (-)는 하락 압력을 의미합니다.
+                    <b>💡 해석:</b> 8대 글로벌 지표를 복합 분석한 <b>KOSPI 일일 기대 수익률</b>입니다. 수치가 양(+)일수록 지표 환경이 우호적임을 의미합니다.
                 </p>
             </div>
         """, unsafe_allow_html=True)
@@ -119,7 +102,7 @@ try:
         cont_df = pd.DataFrame(contribution_pct).T
         cont_df.index = ['비중 (%)']
         st.table(cont_df.style.format("{:.1f}%"))
-        st.caption("※ 산출 방법: 각 지표의 표준화 회귀 계수(Beta) 절대값 비중 합계 100% 환산")
+        st.caption("※ 산출 근거: 표준화 회귀 계수(Beta) 절대값 기반 비중 환산")
 
     st.divider()
 
@@ -143,38 +126,37 @@ try:
         plot_data = df[col].tail(60)
         curr_val = plot_data.iloc[-1]
         
-        # 임계값 및 근거 산출
+        # 위험선 계산
         ma = df[col].rolling(window=250).mean().iloc[-1]
         std = df[col].rolling(window=250).std().iloc[-1]
-        
         if col == 'Exchange': threshold = ma + (1.5 * std)
         elif col in ['VIX', 'Yield_Spread']: threshold = float(th_label)
         elif col in ['US10Y']: threshold = ma + std
         else: threshold = ma - std
 
-        # 진단 텍스트 및 inf 방지
+        # 진단 가이드 텍스트
         safe_th = threshold if threshold != 0 else 1e-6
         dist = abs(curr_val - threshold) / abs(safe_th)
         direction = "위로 상향 돌파 시" if col in ['Exchange', 'VIX', 'US10Y'] else "아래로 하향 이탈 시"
-        analysis_text = f"위험선과 약 {dist:.1%} 거리 유지 중\n지수가 빨간선 {direction}\n[{warn_text}] 상태로 진단"
+        analysis_text = f"위험선과 약 {dist:.1%} 거리 유지 중\n지수가 빨간선 {direction}\n[{warn_text}] 상태로 판단"
 
         # 시각화
         ax.plot(plot_data, color='#34495e', lw=3)
         ax.axhline(y=threshold, color='#e74c3c', ls='--', lw=2)
         
-        # 위험선 근거 텍스트 (선 근처 배치)
-        ax.text(plot_data.index[int(len(plot_data)*0.1)], threshold, f" 산출근거: {th_label}", 
+        # 위험선 산출 근거 표기 (선 근처)
+        ax.text(plot_data.index[5], threshold, f" 산출근거: {th_label}", 
                 fontproperties=fprop, fontsize=10, color='#e74c3c', 
                 va='bottom', backgroundcolor='#ffffff', alpha=0.9)
 
-        # 가로축 날짜 최적화 (겹침 방지)
+        # 가로축 날짜 최적화
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%y/%m/%d'))
         ax.xaxis.set_major_locator(mdates.MaxNLocator(5))
         plt.setp(ax.get_xticklabels(), rotation=20, ha='right', fontproperties=fprop)
 
         ax.set_title(title, fontproperties=fprop, fontsize=18, fontweight='bold', pad=15)
         
-        # 하단 전문 진단 박스
+        # 하단 전문 진단 박스 (겹침 방지 간격 최적화)
         ax.text(0.5, -0.45, analysis_text, transform=ax.transAxes, 
                 ha='center', va='center', fontproperties=fprop, fontsize=12,
                 bbox=dict(boxstyle="round,pad=0.6", fc="#fdfefe", ec="#bdc3c7", lw=1))
@@ -185,5 +167,4 @@ try:
     st.pyplot(fig)
 
 except Exception as e:
-    st.error(f"시스템 구동 중 오류가 발생했습니다: {e}")
-    st.info("데이터 연결을 재설정하고 있습니다. 5분 뒤 자동 갱신됩니다.")
+    st.error(f"시스템 가동 중 오류 발생: {e}")
