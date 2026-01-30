@@ -2,6 +2,5 @@ streamlit
 pandas
 numpy
 FinanceDataReader
-pykrx
 statsmodels
 matplotlib
