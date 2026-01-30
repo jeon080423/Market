@@ -48,21 +48,17 @@ def load_data():
     copper = yf.download("HG=F", start=start_date, end=end_date)
     freight = yf.download("BDRY", start=start_date, end=end_date)
     
-    # 경제 지표 데이터 (FRED)
+    # 경제 지표 데이터 (FRED - 미국 데이터만 유지)
     try:
-        # 미국 주간 실업수당 청구 건수 (ICSA)
         us_unemployment_claims = web.DataReader("ICSA", "fred", start_date, end_date)
-        # 한국 실업자 수 (LRUN64TTKRM156S - Harmonized, 15-64세)
-        kr_unemployment = web.DataReader("LRUN64TTKRM156S", "fred", start_date, end_date)
     except:
         us_unemployment_claims = pd.DataFrame()
-        kr_unemployment = pd.DataFrame()
         
-    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight, us_unemployment_claims, kr_unemployment
+    return kospi, sp500, nikkei, exchange_rate, us_10y, us_2y, vix, copper, freight, us_unemployment_claims
 
 try:
     with st.spinner('시장 데이터 분석 및 가중치 최적화 중...'):
-        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data, us_claims_data, kr_unemp_data = load_data()
+        kospi, sp500, nikkei, fx, bond10, bond2, vix_data, copper_data, freight_data, us_claims_data = load_data()
 
     def get_clean_series(df):
         if df is None or df.empty: return pd.Series()
@@ -83,7 +79,6 @@ try:
     cp_s = get_clean_series(copper_data).reindex(ks_s.index).ffill()
     fr_s = get_clean_series(freight_data).reindex(ks_s.index).ffill()
     usc_s = get_clean_series(us_claims_data).reindex(ks_s.index).ffill()
-    kru_s = get_clean_series(kr_unemp_data).reindex(ks_s.index).ffill()
     
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean()
@@ -138,7 +133,7 @@ try:
     st.sidebar.markdown("---")
     st.sidebar.subheader("📋 가중치 산출 근거 (표준화 회귀분석)")
     st.sidebar.write("""
-    본 대시보드의 초기 가중치는 **'표준화 다중 회귀분석(Standardized Multiple Regression)'**을 통해 산출되었습니다.
+    본 대시보드의 초기 가중치는 **'표준화 다중 회귀분석'**을 통해 산출되었습니다.
     데이터 전처리 및 영향력 추출 과정을 통해 시장 영향력을 실시간 자동 할당합니다.
     """)
 
@@ -201,7 +196,7 @@ try:
     with cb2:
         st.metric("설명력 (R²)", f"{(correlation**2)*100:.1f}%")
         st.metric("상관계수 (Corr)", f"{correlation:.2f}")
-        st.write("""**수치 해석 가이드:** -0.7 이하일수록 하락장 포착 능력이 우수합니다.""")
+        st.write("""**수치 해석 가이드:** -0.7 이하일수록 하락장 포착 능력 우수합니다.""")
 
     # 8. 뉴스 및 보고서
     st.markdown("---")
@@ -242,7 +237,7 @@ try:
     with r1_c2:
         fx_th = float(fx_s.last('365D').mean() * 1.02)
         st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
-        st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_th:.1f}원) 상회 시 자본 유출 압력이 심화됩니다.")
+        st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_th:.1f}원) 상회 시 외국인 자본 유출 압력이 심화됩니다.")
     with r1_c3:
         st.plotly_chart(create_chart(cp_s, "실물 경기 지표 (Copper)", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
         st.info("**실물 경기**: 구리 가격 하락은 글로벌 수요 둔화의 선행 신호입니다.")
@@ -265,21 +260,15 @@ try:
         st.info("**VIX 지수**: 지수 급등은 투자 심리 악화와 투매 가능성을 시사합니다.")
 
     st.markdown("---")
-    r3_c1, r3_c2, r3_c3 = st.columns(3)
+    r3_c1, r3_c2 = st.columns(2)  # 한국 지표 삭제 후 2열로 조정
     with r3_c1:
         fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
         st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_th, f"{fr_th} 하향 돌파 시 위험"), use_container_width=True)
         st.info(f"**물동량**: 지지선({fr_th}) 하향 돌파 시 글로벌 경기 수축 신호로 간주합니다.")
     with r3_c2:
-        # 미국 실업수당 청구 건수 (ICSA) - 증가 시 위험
         usc_th = round(float(usc_s.last('365D').mean() * 1.15), 0)
         st.plotly_chart(create_chart(usc_s, "미국 실업수당 청구 건수", usc_th, f"{int(usc_th):,}건 상회 시 위험"), use_container_width=True)
         st.info("**미국 고용**: 주간 실업수당 청구 건수의 급증은 미국 경기 침체의 핵심 선행 지표입니다.")
-    with r3_c3:
-        # 한국 실업자 수 (Proxy) - 증가 시 위험
-        kru_th = round(float(kru_s.last('365D').mean() * 1.1), 0)
-        st.plotly_chart(create_chart(kru_s, "한국 실업자 수 (Proxy)", kru_th, f"{int(kru_th):,}천명 상회 시 위험"), use_container_width=True)
-        st.info("**국내 고용**: 국내 실업자 수의 추세적 증가는 내수 위축과 기업 이익 감소의 신호입니다.")
 
     # 10. S&P 500 vs 글로벌 물동량 지표 표준화 분석
     st.markdown("---")
