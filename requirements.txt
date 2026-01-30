@@ -5,6 +5,3 @@ yfinance
 FinanceDataReader
 pykrx
 statsmodels
-beautifulsoup4
-requests
-matplotlib
