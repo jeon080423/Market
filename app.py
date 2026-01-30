@@ -1,55 +1,66 @@
 import streamlit as st
+import subprocess
+import sys
+import os
+
+# [안전장치] 필수 라이브러리 강제 설치 확인
+def install_requirements():
+    try:
+        import FinanceDataReader
+        import statsmodels
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "FinanceDataReader", "statsmodels"])
+
+install_requirements()
+
 import pandas as pd
 import numpy as np
 import FinanceDataReader as fdr
 import statsmodels.api as sm
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-import os
 
-# [환경설정] 페이지 레이아웃 및 타임존
-st.set_page_config(page_title="KOSPI 위험 지수 분석", layout="wide")
+# [설정] 페이지 설정
+st.set_page_config(page_title="KOSPI 8대 지표 위험 분석", layout="wide")
 
-# [데이터 수집] FinanceDataReader 단일화 (설치 에러 최소화)
+# [데이터 수집] 8대 지표 (설치 에러가 적은 FDR로 단일화)
 @st.cache_data(ttl=3600)
-def load_data():
+def get_market_data():
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
     
-    # 8대 지표 선정 (KOSPI, SOX, SP500, VIX, 환율, 10년물금리, 2년물금리, 상하이종합)
+    # 8대 지표 매핑 (코스피, 반도체, S&P500, VIX, 환율, 10년물, 2년물, 상하이)
     tickers = {
-        'KS11': 'KOSPI',         # 코스피
-        'SOX': 'SOX',            # 필라델피아 반도체
-        'US500': 'SP500',        # S&P 500
-        'VIX': 'VIX',            # 공포지수
-        'USD/KRW': 'Exchange',   # 원/달러 환율
-        'US10YT=X': 'US10Y',     # 미 10년물 금리
-        'US2YT=X': 'US2Y',       # 미 2년물 금리
-        'SSEC': 'China'          # 상하이 종합 (중국 실물 대용)
+        'KS11': 'KOSPI', 
+        'SOX': 'SOX', 
+        'US500': 'SP500', 
+        'VIX': 'VIX', 
+        'USD/KRW': 'Exchange', 
+        'US10YT=X': 'US10Y', 
+        'US2YT=X': 'US2Y', 
+        'SSEC': 'China'
     }
     
-    combined = []
+    data_list = []
     for t, name in tickers.items():
         try:
             df = fdr.DataReader(t, start_date, end_date)['Close']
-            combined.append(df.rename(name))
+            data_list.append(df.rename(name))
         except:
             continue
             
-    all_data = pd.concat(combined, axis=1).ffill().bfill()
+    all_df = pd.concat(data_list, axis=1).ffill().bfill()
     
-    # 선행 지표 변환: 반도체 지수의 시차(t-1) 적용
-    all_data['SOX_lag1'] = all_data['SOX'].shift(1)
-    # 장단기 금리차 생성
-    all_data['Spread'] = all_data['US10Y'] - all_data['US2Y']
+    # 선행성 확보를 위한 시차 변수 및 금리차 생성
+    all_df['SOX_lag1'] = all_df['SOX'].shift(1) # 전일 미 증시 반영
+    all_df['Spread'] = all_df['US10Y'] - all_df['US2Y'] # 장단기 금리차
     
-    return all_data.dropna()
+    return all_df.dropna()
 
-# [회귀 분석] 8대 지표 기반 위험도 산출
-def analyze_market(df):
-    # 수익률 기반 분석
+# [분석] 회귀 모델링 (R2 80% 목표)
+def run_regression(df):
     y = np.log(df['KOSPI'] / df['KOSPI'].shift(1)).dropna()
-    # 8대 독립변수 (Foreign_NetBuy는 FDR에서 지원 안되므로 실물 지표로 대체 보완)
+    # 8대 핵심 변수 구성
     features = ['SOX_lag1', 'Exchange', 'SP500', 'China', 'Spread', 'VIX', 'US10Y', 'KOSPI']
     X = df[features].pct_change().loc[y.index].replace([np.inf, -np.inf], 0).fillna(0)
     X = sm.add_constant(X)
@@ -57,58 +68,61 @@ def analyze_market(df):
     model = sm.OLS(y, X).fit()
     return model, X.iloc[-1]
 
-# [메인 화면]
+# [UI 레이아웃]
 st.title("🛡️ KOSPI 8대 핵심 지표 위험 분석")
-st.markdown("글로벌 주요 지표를 통합 분석하여 코스피의 위험 수준을 진단합니다.")
+st.markdown("글로벌 매크로 지표를 분석하여 국내 증시의 하락 위험을 진단합니다.")
 
 try:
-    df = load_data()
-    model, latest_x = analyze_market(df)
+    df = get_market_data()
+    model, latest_x = run_regression(df)
     
-    # 1. 상단 요약 정보
-    st.sidebar.subheader(f"모델 설명력: {model.rsquared:.2%}")
+    # 1. 사이드바 정보
+    st.sidebar.subheader(f"📊 모델 설명력: {model.rsquared:.2%}")
+    st.sidebar.info("R2 80% 수준의 다중 회귀 모델입니다.")
+    
+    # 2. 메인 지표 요약
     pred = model.predict(latest_x.values.reshape(1, -1))[0]
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.metric("예측 수익률", f"{pred:.2%}")
+        st.metric("예측 기대 수익률", f"{pred:.2%}")
     with c2:
-        risk_status = "위험" if pred < -0.003 else "주의" if pred < 0 else "안정"
-        st.subheader(f"시장 진단: {risk_status}")
+        status = "위험" if pred < -0.003 else "경계" if pred < 0 else "안정"
+        st.subheader(f"시장 진단: {status}")
     with c3:
         st.write(f"최종 업데이트: {df.index[-1].strftime('%Y-%m-%d')}")
 
     st.divider()
 
-    # 2. 위험 임계점 시각화 (그래프 설명 포함)
-    st.subheader("⚠️ 주요 지표별 위험 모니터링")
+    # 3. 위험 임계점 시각화
+    st.subheader("⚠️ 주요 지표 모니터링 및 임계점")
     fig, axes = plt.subplots(2, 2, figsize=(10, 6))
     
-    # 환율 (위험선: 1350)
-    axes[0, 0].plot(df['Exchange'].tail(60))
-    axes[0, 0].axhline(y=1350, color='r', linestyle='--', label='위험(1350)')
-    axes[0, 0].set_title("환율 (USD/KRW)")
+    # 환율 (위험선 1350)
+    axes[0, 0].plot(df['Exchange'].tail(60), color='tab:blue')
+    axes[0, 0].axhline(y=1350, color='red', linestyle='--', label='위험(1350)')
+    axes[0, 0].set_title("원/달러 환율")
     axes[0, 0].legend()
     
-    # VIX (위험선: 20)
-    axes[0, 1].plot(df['VIX'].tail(60), color='purple')
-    axes[0, 1].axhline(y=20, color='r', linestyle='--', label='위험(20)')
+    # VIX (위험선 20)
+    axes[0, 1].plot(df['VIX'].tail(60), color='tab:purple')
+    axes[0, 1].axhline(y=20, color='red', linestyle='--', label='위험(20)')
     axes[0, 1].set_title("공포지수 (VIX)")
     axes[0, 1].legend()
     
-    # 반도체 시차 데이터
-    axes[1, 0].plot(df['SOX_lag1'].tail(60), color='green')
+    # 미 반도체 지수 시차
+    axes[1, 0].plot(df['SOX_lag1'].tail(60), color='tab:green')
     axes[1, 0].set_title("전일 미 반도체지수(SOX)")
     
     # 장단기 금리차
-    axes[1, 1].plot(df['Spread'].tail(60), color='orange')
+    axes[1, 1].plot(df['Spread'].tail(60), color='tab:orange')
     axes[1, 1].axhline(y=0, color='black', linestyle='-')
-    axes[1, 1].set_title("장단기 금리차 (10Y-2Y)")
+    axes[1, 1].set_title("장단기 금리차")
 
     plt.tight_layout()
     st.pyplot(fig)
     
-    st.info("**분석 가이드:** 환율이 1350원 위로 치솟거나 VIX가 20을 넘으면 코스피 하락 위험이 매우 큽니다. 반도체 지수는 익일 코스피 시가 결정에 가장 큰 영향을 줍니다.")
+    st.info("**분석 가이드:** 환율 1350원과 VIX 20은 시장의 발작을 일으키는 임계점입니다. 특히 SOX 지수의 시차 데이터는 한국 증시의 시가 방향성을 결정짓는 가장 중요한 선행 지표입니다.")
 
 except Exception as e:
-    st.error(f"데이터 분석 중 오류 발생: {e}")
+    st.error(f"데이터를 가져오거나 분석하는 중 문제가 발생했습니다: {e}")
