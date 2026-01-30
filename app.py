@@ -34,11 +34,8 @@ def save_prediction_history(date_str, pred_val, actual_close, prev_close):
         try:
             history_df = pd.read_csv(HISTORY_FILE)
             if date_str not in history_df["날짜"].values:
-                # 장 마감 시간(15:30) 이후이거나 데이터가 아직 없는 경우에만 누적
                 current_time = datetime.now().time()
                 market_close = datetime.strptime("15:30", "%H:%M").time()
-                
-                # 장 마감 후에만 신규 데이터를 최종 확정하여 저장
                 if current_time >= market_close:
                     history_df = pd.concat([history_df, new_data], ignore_index=True)
                     history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
@@ -71,7 +68,6 @@ st.set_page_config(page_title="KOSPI 인텔리전스 진단 시스템 v3.0", lay
 # [데이터 수집] 개별 수집으로 안정성 확보 및 에러 핸들링 강화
 @st.cache_data(ttl=900)
 def load_expert_data():
-    # 8대 핵심 지표 + 업종 분석용 티커 추가
     tickers = {
         '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
         '^VIX': 'VIX', '000001.SS': 'China', '^TNX': 'US10Y', '^IRX': 'US2Y',
@@ -110,10 +106,10 @@ def get_analysis(df):
     X_scaled['SOX_SP500'] = X_scaled['SOX_lag1'] * X_scaled['SP500']
     X_final = sm.add_constant(X_scaled)
     model = sm.OLS(y, X_final).fit()
-    # 비중 계산 시 상수항과 상호작용항을 제외한 순수 7대 지표만 추출하여 100% 비율 산정
+    
     abs_coeffs = np.abs(model.params.drop(['const', 'SOX_SP500']))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
-    return model, contribution
+    return model, contribution, X_scaled.columns.tolist()
 
 def custom_date_formatter(x, pos):
     dt = mdates.num2date(x)
@@ -121,53 +117,53 @@ def custom_date_formatter(x, pos):
 
 try:
     df = load_expert_data()
-    model, contribution_pct = get_analysis(df)
+    model, contribution_pct, model_features = get_analysis(df)
     
     # --- 1. 상단 AI 마켓 브리핑 및 리스크 가이드 ---
     st.title("🏛️ KOSPI 인텔리전스 진단 시스템 v3.0")
     
-    # 데이터 가공
+    # 예측 데이터 준비 로직 (에러 해결 핵심: 순서 맞춤)
     current_data = df.tail(3).mean()
     mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
-    current_scaled_vals = (current_data[contribution_pct.index] - mu) / std
+    current_scaled = (current_data[contribution_pct.index] - mu) / std
     
-    # 예측을 위한 입력 벡터 구성 (상수항 1 + 7대 지표 + 상호작용항)
-    interaction_val = current_scaled_vals['SOX_lag1'] * current_scaled_vals['SP500']
-    pred_input = [1] + current_scaled_vals.tolist() + [interaction_val]
+    # 학습에 사용된 컬럼 순서대로 예측용 데이터 구성
+    pred_data_row = {f: current_scaled[f] for f in contribution_pct.index}
+    pred_data_row['SOX_SP500'] = pred_data_row['SOX_lag1'] * pred_data_row['SP500']
     
-    pred_val_level = model.predict(pred_input)[0]
+    # predict()에 전달할 최종 리스트 (상수항 1 + 지표 순서 준수)
+    final_pred_input = [1] + [pred_data_row[col] for col in model_features]
+    
+    pred_val_level = model.predict(final_pred_input)[0]
     prev_val_level = df['KOSPI'].iloc[-2]
     pred_val = (pred_val_level - prev_val_level) / prev_val_level
     
+    # 중기 예측
     mid_term_df = df.tail(20).mean()
-    mid_scaled_vals = (mid_term_df[contribution_pct.index] - mu) / std
-    mid_interaction = mid_scaled_vals['SOX_lag1'] * mid_scaled_vals['SP500']
-    mid_pred_input = [1] + mid_scaled_vals.tolist() + [mid_interaction]
+    mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
+    mid_data_row = {f: mid_scaled[f] for f in contribution_pct.index}
+    mid_data_row['SOX_SP500'] = mid_data_row['SOX_lag1'] * mid_data_row['SP500']
+    final_mid_input = [1] + [mid_data_row[col] for col in model_features]
     
-    mid_pred_level = model.predict(mid_pred_input)[0]
+    mid_pred_level = model.predict(final_mid_input)[0]
     mid_start_level = df['KOSPI'].tail(20).iloc[0]
     mid_pred_val = (mid_pred_level - mid_start_level) / mid_start_level
 
-    # 로컬 히스토리 기반 신뢰도 계산 (기능 3)
+    # 신뢰도 및 AI 요약
     history_df = load_prediction_history()
     if not history_df.empty:
         history_df['오차수치'] = pd.to_numeric(history_df['예측 오차'].str.replace(',', ''), errors='coerce').abs()
         mae = history_df['오차수치'].tail(5).mean()
         reliability = "높음" if mae < 20 else "보통" if mae < 40 else "주의"
-        rel_color = "#2ecc71" if reliability == "높음" else "#f1c40f" if reliability == "보통" else "#e74c3c"
     else:
-        reliability, rel_color = "데이터 부족", "#888"
+        reliability = "데이터 부족"
 
-    # AI 한 줄 진단 (기능 5)
-    main_driver = contribution_pct.idxmax()
-    market_mood = "우호적" if pred_val > 0 else "경계적"
-    ai_summary = f"현재 시장은 **{main_driver}**의 영향력이 가장 강력하며, 단기적으로 **{market_mood}**인 흐름이 감지됩니다. 모델 신뢰도는 **{reliability}** 수준입니다."
+    ai_summary = f"현재 시장은 **{contribution_pct.idxmax()}**의 영향력이 가장 강력하며, 모델 신뢰도는 **{reliability}** 수준입니다."
 
     header_c1, header_c2 = st.columns([2, 1])
     with header_c1:
         st.info(f"🤖 **AI 마켓 브리핑:** {ai_summary}")
     with header_c2:
-        # 현금 비중 가이드 (기능 2)
         cash_ratio = 10 if pred_val > 0.005 else 30 if pred_val > 0 else 60 if pred_val > -0.005 else 90
         st.metric("추천 현금 비중", f"{cash_ratio}%", delta=f"{'방어' if cash_ratio > 50 else '공격'} 포지션")
 
@@ -244,7 +240,6 @@ try:
             """, unsafe_allow_html=True)
         
     with c3:
-        # 업종별 순환매 분석 (기능 1)
         st.subheader("🔄 주도 업종 순환매 분석")
         sector_returns = df[['Samsung', 'Hynix', 'Hyundai', 'LG_Energy']].pct_change(5).iloc[-1] * 100
         sector_df = pd.DataFrame(sector_returns).rename(columns={sector_returns.name: '5일 수익률(%)'})
@@ -301,4 +296,4 @@ try:
     st.pyplot(fig)
 
 except Exception as e:
-    st.error(f"메인 로직 에러: {e}")
+    st.error(f"분석 엔진 오류 발생: {e}")
