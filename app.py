@@ -34,8 +34,11 @@ def save_prediction_history(date_str, pred_val, actual_close, prev_close):
         try:
             history_df = pd.read_csv(HISTORY_FILE)
             if date_str not in history_df["날짜"].values:
+                # 장 마감 시간(15:30) 이후이거나 데이터가 아직 없는 경우에만 누적
                 current_time = datetime.now().time()
                 market_close = datetime.strptime("15:30", "%H:%M").time()
+                
+                # 장 마감 후에만 신규 데이터를 최종 확정하여 저장
                 if current_time >= market_close:
                     history_df = pd.concat([history_df, new_data], ignore_index=True)
                     history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
@@ -107,6 +110,7 @@ def get_analysis(df):
     X_scaled['SOX_SP500'] = X_scaled['SOX_lag1'] * X_scaled['SP500']
     X_final = sm.add_constant(X_scaled)
     model = sm.OLS(y, X_final).fit()
+    # 비중 계산 시 상수항과 상호작용항을 제외한 순수 7대 지표만 추출하여 100% 비율 산정
     abs_coeffs = np.abs(model.params.drop(['const', 'SOX_SP500']))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
     return model, contribution
@@ -125,16 +129,22 @@ try:
     # 데이터 가공
     current_data = df.tail(3).mean()
     mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
-    current_scaled = (current_data[contribution_pct.index] - mu) / std
-    current_scaled['SOX_SP500'] = current_scaled['SOX_lag1'] * current_scaled['SP500']
-    pred_val_level = model.predict([1] + current_scaled.tolist())[0]
+    current_scaled_vals = (current_data[contribution_pct.index] - mu) / std
+    
+    # 예측을 위한 입력 벡터 구성 (상수항 1 + 7대 지표 + 상호작용항)
+    interaction_val = current_scaled_vals['SOX_lag1'] * current_scaled_vals['SP500']
+    pred_input = [1] + current_scaled_vals.tolist() + [interaction_val]
+    
+    pred_val_level = model.predict(pred_input)[0]
     prev_val_level = df['KOSPI'].iloc[-2]
     pred_val = (pred_val_level - prev_val_level) / prev_val_level
     
     mid_term_df = df.tail(20).mean()
-    mid_scaled = (mid_term_df[contribution_pct.index] - mu) / std
-    mid_scaled['SOX_SP500'] = mid_scaled['SOX_lag1'] * mid_scaled['SP500']
-    mid_pred_level = model.predict([1] + mid_scaled.tolist())[0]
+    mid_scaled_vals = (mid_term_df[contribution_pct.index] - mu) / std
+    mid_interaction = mid_scaled_vals['SOX_lag1'] * mid_scaled_vals['SP500']
+    mid_pred_input = [1] + mid_scaled_vals.tolist() + [mid_interaction]
+    
+    mid_pred_level = model.predict(mid_pred_input)[0]
     mid_start_level = df['KOSPI'].tail(20).iloc[0]
     mid_pred_val = (mid_pred_level - mid_start_level) / mid_start_level
 
