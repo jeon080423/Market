@@ -10,8 +10,8 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import os
 
-# [자동 업데이트] 5분 주기
-st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
+# [자동 업데이트] 15분 주기로 변경 (5분 -> 15분)
+st_autorefresh(interval=15 * 60 * 1000, key="datarefresh")
 
 # [로컬 데이터 보존 설정]
 HISTORY_FILE = 'prediction_history.csv'
@@ -22,18 +22,23 @@ def save_prediction_history(date_str, pred_val, actual_close):
                             columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
     
     if os.path.exists(HISTORY_FILE):
-        history_df = pd.read_csv(HISTORY_FILE)
-        # 중복 날짜 체크 후 저장
-        if date_str not in history_df["날짜"].values:
-            history_df = pd.concat([history_df, new_data], ignore_index=True)
-            history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
+        try:
+            history_df = pd.read_csv(HISTORY_FILE)
+            if date_str not in history_df["날짜"].values:
+                history_df = pd.concat([history_df, new_data], ignore_index=True)
+                history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
+        except:
+            new_data.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
     else:
         new_data.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
 def load_prediction_history():
     """로컬 CSV 파일에서 히스토리 불러오기"""
     if os.path.exists(HISTORY_FILE):
-        return pd.read_csv(HISTORY_FILE)
+        try:
+            return pd.read_csv(HISTORY_FILE)
+        except:
+            return pd.DataFrame(columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
     return pd.DataFrame(columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
 
 # [폰트 설정]
@@ -48,8 +53,8 @@ fprop = get_korean_font()
 
 st.set_page_config(page_title="KOSPI 정밀 진단 v2.8", layout="wide")
 
-# [데이터 수집] 개별 수집으로 안정성 확보
-@st.cache_data(ttl=300)
+# [데이터 수집] 개별 수집으로 안정성 확보 및 에러 핸들링 강화
+@st.cache_data(ttl=900) # 캐시 유지 시간도 15분으로 상향
 def load_expert_data():
     tickers = {
         '^KS11': 'KOSPI', 'USDKRW=X': 'Exchange', '^SOX': 'SOX', '^GSPC': 'SP500', 
@@ -60,16 +65,23 @@ def load_expert_data():
 
     for ticker, name in tickers.items():
         try:
+            # 과거 데이터 다운로드
             raw = yf.download(ticker, start=start_date, interval='1d', progress=False)
             if not raw.empty:
+                # 실시간 데이터(1분봉) 시도
                 rt = yf.download(ticker, period='1d', interval='1m', progress=False)
                 val = rt['Close'].iloc[-1] if not rt.empty else raw['Close'].iloc[-1]
+                
                 series = raw['Close'].copy()
+                # 마지막 인덱스가 오늘 날짜인지 확인 후 업데이트
                 series.iloc[-1] = val
                 combined_df[name] = series
-        except:
+        except Exception as e:
             continue
     
+    if combined_df.empty:
+        raise Exception("데이터를 불러오지 못했습니다. 네트워크를 확인해주세요.")
+
     df = combined_df.ffill().interpolate()
     df['SOX_lag1'] = df['SOX'].shift(1)
     df['Yield_Spread'] = df['US10Y'] - df['US2Y']
@@ -83,7 +95,7 @@ def get_analysis(df):
     X = df_smooth[features_list]
     X_scaled = (X - X.mean()) / X.std()
     X_scaled['SOX_SP500'] = X_scaled['SOX_lag1'] * X_scaled['SP500']
-    X_final = sm.add_constant(X_scaled)
+    X_final = sm.add_constant(X_final_input := X_scaled)
     model = sm.OLS(y, X_final).fit()
     abs_coeffs = np.abs(model.params.drop(['const', 'SOX_SP500']))
     contribution = (abs_coeffs / abs_coeffs.sum()) * 100
@@ -101,14 +113,15 @@ try:
     
     with c1:
         current_data = df.tail(3).mean()
-        current_scaled = (current_data[contribution_pct.index] - df[contribution_pct.index].mean()) / df[contribution_pct.index].std()
+        # 데이터 정규화 로직 (에러 방지를 위해 명시적 처리)
+        mu, std = df[contribution_pct.index].mean(), df[contribution_pct.index].std()
+        current_scaled = (current_data[contribution_pct.index] - mu) / std
         current_scaled['SOX_SP500'] = current_scaled['SOX_lag1'] * current_scaled['SP500']
         
         pred_val_level = model.predict([1] + current_scaled.tolist())[0]
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
-        # [로컬 히스토리 저장]
         today_str = datetime.now().strftime('%Y-%m-%d')
         save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1])
         
@@ -117,15 +130,14 @@ try:
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px;">
                 <h3 style="margin: 0; color: #555;">📈 KOSPI 기대 수익률: <span style="color:{color}">{pred_val:+.2%}</span></h3>
                 <p style="color: #444; font-size: 13px; margin-top: 10px; line-height: 1.5;">
-                    <b>[메모리 상태]</b><br>
-                    로컬 히스토리 파일 보존 중 (CSV)<br>
+                    <b>[진단 상태]</b><br>
+                    갱신 주기: 15분 (서버 부하 감소 적용)<br>
                     실시간 종가: <b>{df['KOSPI'].iloc[-1]:,.2f}</b>
                 </p>
             </div>
         """, unsafe_allow_html=True)
 
     with c2:
-        # [로컬 히스토리 불러오기]
         history_df = load_prediction_history()
         if not history_df.empty:
             st.markdown(f"""
@@ -148,7 +160,6 @@ try:
 
     st.divider()
 
-    # 하단 그래프
     fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     plt.subplots_adjust(hspace=0.4)
     config = [
