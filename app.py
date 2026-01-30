@@ -9,65 +9,32 @@ import matplotlib.font_manager as fm
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import os
-import gspread
-from google.oauth2.service_account import Credentials
 
 # [자동 업데이트] 5분 주기
 st_autorefresh(interval=5 * 60 * 1000, key="datarefresh")
 
-# [구글 시트 설정]
-SERVICE_ACCOUNT_FILE = 'service_account.json' 
-SHEET_NAME = 'KOSPI_Prediction_History'
+# [로컬 데이터 보존 설정]
+HISTORY_FILE = 'prediction_history.csv'
 
-def get_gsheet_client():
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        return None
-    try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
-        return gspread.authorize(creds)
-    except Exception as e:
-        st.error(f"인증 파일 오류: {e}")
-        return None
+def save_prediction_history(date_str, pred_val, actual_close):
+    """예측 데이터를 로컬 CSV 파일에 저장하여 메모리 유지"""
+    new_data = pd.DataFrame([[date_str, f"{pred_val:.4%}", f"{actual_close:,.2f}", datetime.now().strftime('%H:%M:%S')]], 
+                            columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
+    
+    if os.path.exists(HISTORY_FILE):
+        history_df = pd.read_csv(HISTORY_FILE)
+        # 중복 날짜 체크 후 저장
+        if date_str not in history_df["날짜"].values:
+            history_df = pd.concat([history_df, new_data], ignore_index=True)
+            history_df.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
+    else:
+        new_data.to_csv(HISTORY_FILE, index=False, encoding='utf-8-sig')
 
-def update_gsheet_history(date_str, pred_val, actual_close):
-    try:
-        client = get_gsheet_client()
-        if client is None: return
-        
-        try:
-            sh = client.open(SHEET_NAME).get_worksheet(0)
-        except gspread.SpreadsheetNotFound:
-            # 시트가 없으면 생성 권한이 있는 경우 시도
-            return
-
-        # 데이터 존재 여부 확인 및 헤더 생성
-        try:
-            values = sh.get_all_values()
-        except:
-            values = []
-
-        if not values:
-            sh.append_row(["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
-            
-        # 중복 기록 방지 (첫 열이 날짜라고 가정)
-        existing_dates = sh.col_values(1) if values else []
-        if date_str not in existing_dates:
-            sh.append_row([date_str, f"{pred_val:.4%}", f"{actual_close:,.2f}", datetime.now().strftime('%H:%M:%S')])
-    except Exception as e:
-        # 시트 업데이트 실패 시 로그만 표시
-        st.sidebar.warning(f"시트 업데이트 실패: {e}")
-
-def load_gsheet_history():
-    try:
-        client = get_gsheet_client()
-        if client is None: return pd.DataFrame()
-        sh = client.open(SHEET_NAME).get_worksheet(0)
-        data = sh.get_all_records()
-        if not data: return pd.DataFrame()
-        return pd.DataFrame(data)
-    except:
-        return pd.DataFrame()
+def load_prediction_history():
+    """로컬 CSV 파일에서 히스토리 불러오기"""
+    if os.path.exists(HISTORY_FILE):
+        return pd.read_csv(HISTORY_FILE)
+    return pd.DataFrame(columns=["날짜", "KOSPI 기대 수익률", "실제 종가", "기록시각"])
 
 # [폰트 설정]
 @st.cache_resource
@@ -141,24 +108,25 @@ try:
         prev_val_level = df['KOSPI'].iloc[-2]
         pred_val = (pred_val_level - prev_val_level) / prev_val_level
         
-        # 구글 시트 업데이트
+        # [로컬 히스토리 저장]
         today_str = datetime.now().strftime('%Y-%m-%d')
-        update_gsheet_history(today_str, pred_val, df['KOSPI'].iloc[-1])
+        save_prediction_history(today_str, pred_val, df['KOSPI'].iloc[-1])
         
         color = "#e74c3c" if pred_val < 0 else "#2ecc71"
         st.markdown(f"""
             <div style="padding: 20px; border-radius: 15px; border-left: 10px solid {color}; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px;">
                 <h3 style="margin: 0; color: #555;">📈 KOSPI 기대 수익률: <span style="color:{color}">{pred_val:+.2%}</span></h3>
                 <p style="color: #444; font-size: 13px; margin-top: 10px; line-height: 1.5;">
-                    <b>[진단 상태]</b><br>
-                    연동 파일: {'service_account.json (OK)' if os.path.exists(SERVICE_ACCOUNT_FILE) else '파일 없음'}<br>
+                    <b>[메모리 상태]</b><br>
+                    로컬 히스토리 파일 보존 중 (CSV)<br>
                     실시간 종가: <b>{df['KOSPI'].iloc[-1]:,.2f}</b>
                 </p>
             </div>
         """, unsafe_allow_html=True)
 
     with c2:
-        history_df = load_gsheet_history()
+        # [로컬 히스토리 불러오기]
+        history_df = load_prediction_history()
         if not history_df.empty:
             st.markdown(f"""
                 <div style="padding: 20px; border-radius: 15px; border-left: 10px solid #3498db; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); height: 260px; overflow-y: auto;">
@@ -167,7 +135,7 @@ try:
                 </div>
             """, unsafe_allow_html=True)
         else:
-            st.warning("시트 데이터를 불러오는 중이거나 데이터가 없습니다.")
+            st.info("누적된 예측 데이터가 없습니다.")
 
     with c3:
         st.subheader("📊 지표별 KOSPI 영향력 비중")
@@ -176,7 +144,7 @@ try:
             return ['color: red; font-weight: bold' if v else '' for v in is_max]
         cont_df = pd.DataFrame(contribution_pct).T
         st.table(cont_df.style.format("{:.1f}%").apply(highlight_max, axis=1))
-        st.caption(f"설명력(R²): {model.rsquared:.2%}")
+        st.caption(f"모델 설명력(R²): {model.rsquared:.2%}")
 
     st.divider()
 
