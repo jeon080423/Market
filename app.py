@@ -86,6 +86,8 @@ try:
             t_score = max(0, min(100, 100 - (float(_ks_s.loc[d]) / float(_ma20.loc[d]) - 0.9) * 500))
             data_rows.append([m_score, g_risk, get_hist_score_val(_vx_s, d), t_score, _ks_s.loc[d]])
         df_sem = pd.DataFrame(data_rows, columns=['Macro', 'Global', 'Fear', 'Tech', 'KOSPI'])
+        
+        # 실제 통계 분석 수행: 표준화 다중 회귀분석
         X = (df_sem.iloc[:, :4] - df_sem.iloc[:, :4].mean()) / df_sem.iloc[:, :4].std()
         Y = (df_sem['KOSPI'] - df_sem['KOSPI'].mean()) / df_sem['KOSPI'].std()
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
@@ -94,16 +96,14 @@ try:
 
     sem_w = calculate_sem_weights(ks_s, sp_s, nk_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
-    # 5. 사이드바 - 복귀 로직 (슬라이더 선언 전 위치 필수)
+    # 5. 사이드바 - 복귀 로직
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     
-    # 세션 상태 초기화
     if 'slider_m' not in st.session_state: st.session_state.slider_m = float(round(sem_w[0], 2))
     if 'slider_g' not in st.session_state: st.session_state.slider_g = float(round(sem_w[1], 2))
     if 'slider_f' not in st.session_state: st.session_state.slider_f = float(round(sem_w[2], 2))
     if 'slider_t' not in st.session_state: st.session_state.slider_t = float(round(sem_w[3], 2))
 
-    # [핵심 수정] 복귀 버튼을 슬라이더 위로 이동하여 instantiated 에러 방지
     if st.sidebar.button("🔄 계산된 원래 가중치로 복귀"):
         st.session_state.slider_m = float(round(sem_w[0], 2))
         st.session_state.slider_g = float(round(sem_w[1], 2))
@@ -116,9 +116,17 @@ try:
     w_fear = st.sidebar.slider("시장 공포 (VIX 지수)", 0.0, 1.0, key="slider_f", step=0.01)
     w_tech = st.sidebar.slider("국내 기술적 지표 (이동평균선)", 0.0, 1.0, key="slider_t", step=0.01)
 
+    # 가중치 산출 방법 상세 설명 (수정된 부분)
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📋 가중치 산출 근거 (SEM 분석)")
-    st.sidebar.write("본 대시보드의 가중치는 **다중회귀분석**을 통해 최근 252거래일간 각 지표가 KOSPI 변동에 미친 통계적 기여도를 실시간 산출하여 적용되었습니다.")
+    st.sidebar.subheader("📋 가중치 산출 근거 (회귀 분석)")
+    st.sidebar.write("""
+    본 대시보드의 초기 가중치는 **'표준화 다중 회귀분석(Standardized Multiple Regression)'** 기법을 통해 산출되었습니다.
+    
+    1. **데이터 전처리**: 최근 252거래일(1년) 동안의 매크로, 글로벌, 공포, 기술적 지표 점수와 KOSPI 지수를 모두 수집합니다.
+    2. **단위 표준화**: 각 지표의 단위가 다르므로 통계적 비교가 가능하도록 모든 데이터를 평균 0, 표준편차 1인 상태로 표준화합니다.
+    3. **영향력 추출**: 표준화된 독립변수들이 종속변수인 KOSPI의 변동을 얼마나 잘 설명하는지 **최소제곱법(OLS)**으로 분석하여 회귀계수($\\beta$)를 구합니다.
+    4. **가중치 결정**: 산출된 회귀계수의 절대값을 기준으로 각 지표의 상대적 중요도를 백분율로 환산하여 슬라이더의 기본값으로 적용합니다.
+    """)
 
     total_w = w_macro + w_tech + w_global + w_fear
     if total_w == 0: st.error("가중치 합이 0일 수 없습니다."); st.stop()
@@ -153,12 +161,11 @@ try:
         fig_gauge.update_layout(height=350, margin=dict(t=50, b=0))
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # 7. 백테스팅 섹션 (설명 및 가이드 복원)
+    # 7. 백테스팅 섹션
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
     st.info("""
-    **백테스팅(Backtesting)이란?** 과거 데이터를 사용하여 모델의 유효성을 검증하는 과정입니다. 
-    여기서는 지난 1년간의 데이터를 바탕으로 매일의 위험 지수를 재산출하여 KOSPI 하락 시점에 지수가 선행했는지 확인합니다.
+    **백테스팅(Backtesting)**: 과거 데이터를 사용하여 모델의 유효성을 검증하는 과정입니다. 위험 지수가 선행하여 상승했는지 확인하십시오.
     """)
     
     dates = ks_s.index[-252:]
@@ -209,14 +216,13 @@ try:
             st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         except: st.write("보고서를 불러올 수 없습니다.")
 
-    # 9. 지표별 상세 분석 (빨간선 텍스트 및 상세 설명 복원)
+    # 9. 지표별 상세 분석
     st.markdown("---")
     st.subheader("🔍 실물 경제 및 주요 상관관계 지표 분석")
     
     def create_chart(series, title, threshold, desc_text):
         fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title))
         fig.add_hline(y=threshold, line_width=2, line_color="red")
-        # 빨간 선 위 텍스트 주석 추가
         fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
         fig.update_layout(title=title, height=300, margin=dict(l=10, r=10, t=40, b=10))
         return fig
@@ -260,4 +266,4 @@ try:
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 가중치 초기화 및 SEM 엔진 가동 중")
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 회귀 모델 기반 가중치 최적화 엔진 가동 중")
