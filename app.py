@@ -151,6 +151,7 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
+        # [이동] 예측 히스토리를 KOSPI 기대 수익률 밑으로 배치
         st.write("") 
         history_df = load_prediction_history()
         if not history_df.empty:
@@ -183,6 +184,25 @@ try:
                 </p>
             </div>
         """, unsafe_allow_html=True)
+
+        # [신규 추가] 실시간 매매 전략 신호 가이드
+        st.write("")
+        # 전략 신호 판단 로직
+        if pred_val < -0.005 and mid_pred_val < 0:
+            signal, s_color = "🔴 즉시 매도 (강한 하락)", "#ff4b4b"
+        elif pred_val < 0:
+            signal, s_color = "🟠 매도 준비 (에너지 약화)", "#ffa500"
+        elif pred_val > 0.005 and mid_pred_val > 0:
+            signal, s_color = "🔵 매수 유효 (강한 탄력)", "#1f77b4"
+        else:
+            signal, s_color = "⚪ 보유 및 관망 (중립)", "#888"
+
+        st.markdown(f"""
+            <div style="padding: 15px; border-radius: 10px; background-color: {s_color}; color: white; text-align: center;">
+                <h4 style="margin: 0;">⚡ 실시간 매매 전략 신호</h4>
+                <h2 style="margin: 5px 0 0 0; font-weight: bold;">{signal}</h2>
+            </div>
+        """, unsafe_allow_html=True)
         
     with c3:
         st.subheader("📊 지표별 KOSPI 영향력 비중")
@@ -195,6 +215,7 @@ try:
 
     st.divider()
 
+    # 하단 그래프 영역 (기존 유지)
     fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     plt.subplots_adjust(hspace=0.4)
     config = [
