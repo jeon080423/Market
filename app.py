@@ -33,7 +33,7 @@ ADMIN_PW = "3033"
 SHEET_ID = "1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU"
 GSHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 # ⚠️ 반드시 1번 단계에서 새로 배포한 웹 앱 URL을 아래에 입력하세요.
-GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbx9Py_q8W7ZR1MgS3av3LgAAgKxZgkFSoAB4oo7IlhvZFcK30R8ZUfumuH2_ouQt2wX/exec" 
+GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbw43o-TgvsEFetlCnp_Yu-L-7aIM4INkYB9hb3Hzvr5kJS2263v3bP0RRmwXSNG9iuv/exec" 
 
 # 3. 제목 및 설명
 st.title("KOSPI 위험 모니터링 (KOSPI Market Risk Index)")
@@ -136,7 +136,7 @@ def save_to_gsheet(date, author, content, password, action="append"):
             "date": date,
             "author": author,
             "content": content,
-            "password": password,
+            "password": str(password),
             "action": action
         }
         res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload), timeout=10)
@@ -284,22 +284,14 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
-        # 게시글 높이 최소화 및 폰트 크기 2단계 확대(1.1rem) 스타일
+        # 게시글 간 상하 여백, 폰트 크기(1.1rem) 스타일 보강
         st.markdown("""
             <style>
             .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; }
             .element-container { margin-bottom: -1px !important; padding: 0px !important; }
             div[data-testid="stVerticalBlock"] > div { padding: 0px !important; margin: 0px !important; }
-            /* 편집 버튼 스타일 */
             button[data-testid="baseButton-secondary"] { 
-                padding: 0px !important; 
-                height: 18px !important; 
-                min-height: 18px !important; 
-                line-height: 1 !important; 
-                border: none !important; 
-                background: transparent !important;
-                color: #555 !important;
-                font-size: 12px !important;
+                padding: 0px !important; height: 18px !important; min-height: 18px !important; line-height: 1 !important; border: none !important; background: transparent !important; color: #555 !important; font-size: 12px !important;
             }
             hr { margin-top: 5px !important; margin-bottom: 5px !important; }
             </style>
@@ -325,7 +317,6 @@ try:
                 for i, post in enumerate(paged_data):
                     actual_idx = len(st.session_state.board_data) - 1 - (start_idx + i)
                     bc1, bc2 = st.columns([12, 1.5]) 
-                    # 폰트 크기를 1.1rem으로 확대
                     bc1.markdown(f"<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     
                     with bc2.popover("편집", help="수정/삭제"):
@@ -334,9 +325,13 @@ try:
                             new_c = st.text_input("내용 수정", value=post.get('Content',''), key=f"edit_{actual_idx}")
                             c1, c2 = st.columns(2)
                             if c1.button("수정", key=f"ub_{actual_idx}"):
-                                st.warning("시트에서 직접 수정해 주세요.")
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_c, check_pw, action="update"):
+                                    st.success("수정됨"); st.rerun()
+                                else: st.error("실패")
                             if c2.button("삭제", key=f"db_{actual_idx}"):
-                                st.warning("시트에서 직접 삭제해 주세요.")
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), "", check_pw, action="delete"):
+                                    st.success("삭제됨"); st.rerun()
+                                else: st.error("실패")
                         elif check_pw:
                             st.error("비번 불일치")
         
@@ -363,10 +358,9 @@ try:
                 elif not u_content: st.error("내용입력")
                 else:
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    if save_to_gsheet(now_str, u_name if u_name else "익명", u_content, u_pw):
+                    if save_to_gsheet(now_str, u_name if u_name else "익명", u_content, u_pw, action="append"):
                         st.success("등록됨"); st.rerun()
-                    else:
-                        st.error("실패")
+                    else: st.error("실패")
 
     # 7. 백테스팅
     st.markdown("---")
