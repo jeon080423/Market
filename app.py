@@ -27,16 +27,13 @@ NEWS_API_KEY = "13cfedc9823541c488732fb27b02fa25"
 COVID_EVENT_DATE = "2020-02-19"
 
 # 관리자 설정 (보안 강화: st.secrets 사용)
-# 로컬에서는 .streamlit/secrets.toml 파일에, 배포 서버에서는 Secrets 설정에 값을 입력해야 합니다.
 try:
     ADMIN_ID = st.secrets["admin"]["id"]
     ADMIN_PW = st.secrets["admin"]["pw"]
 except FileNotFoundError:
-    # secrets 파일이 없을 경우 예외 처리
     ADMIN_ID = "admin_temp" 
     ADMIN_PW = "temp_pass" 
 except KeyError:
-    # 키가 잘못되었을 경우
     ADMIN_ID = "admin_temp"
     ADMIN_PW = "temp_pass"
 
@@ -83,11 +80,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# 한국 시간(KST) 설정을 위한 함수
+def get_kst_now():
+    return datetime.now() + timedelta(hours=9)
+
 # 3. 제목 및 설명
 st.title("KOSPI 위험 모니터링 (KOSPI Market Risk Index)")
 st.markdown(f"""
 이 대시보드는 **향후 1주일(5거래일) 내외**의 시장 변동 위험을 포착하는데 최적화 되어 있습니다.  **검증되지 않은 모델** 입니다. **참고용** 으로만 사용하세요.
-(마지막 업데이트: {datetime.now().strftime('%m월 %d일 %H시 %M분')})
+(마지막 업데이트 KST: {get_kst_now().strftime('%m월 %d일 %H시 %M분')})
 """)
 st.markdown("---")
 
@@ -309,7 +310,7 @@ try:
             
         # 표 내용 및 스타일
         st.markdown(f"""
-        .
+        지수 구간별 상세 대응 전략은 다음과 같습니다.
 
         | 점수 | 상태 | 권장 대응 (Action Plan) |
         | :--- | :--- | :--- |
@@ -425,7 +426,7 @@ try:
                 elif not u_pw: st.error("비번 필수")
                 elif not u_content: st.error("내용 입력")
                 else:
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    now_str = get_kst_now().strftime("%Y-%m-%d %H:%M:%S")
                     if save_to_gsheet(now_str, u_name, u_content, u_pw, action="append"):
                         st.success("등록 성공")
                         st.rerun()
@@ -550,6 +551,4 @@ try:
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {datetime.now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
-
+st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
