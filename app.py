@@ -59,7 +59,7 @@ with st.expander("📖 대시보드 사용 가이드"):
     """)
     
     st.markdown("#### **③ 요약**")
-    st.info("본 대시보드의 위험 지수는 수개월 단위의 거시적 경제 지표보다는, **향후 1주일(5거래일) 내외**의 시장 변동 위험을 포착하고 대비하는 데 최적화되어 설계되었습니다.")
+    st.info("본 대시보드의 위험 지수는 수개월 단위의 거시적 경제 지표보다는, **향후 1주일(5거래일) 내외**의 시장 변동 위험을 포착하고 대비하는데 최적화되어 설계되었습니다. **검증된 모델** 이 아닙니다. **참고용** 으로만 사용하세요")
 
     st.divider()
     
@@ -220,7 +220,7 @@ try:
     """)
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("본 서비스는 자발적 후원으로 운영됩니다.")
+    st.sidebar.subheader("자발적 후원으로 운영됩니다.")
     st.sidebar.write("카카오뱅크 3333-23-8667708 (ㅈㅅ현)")
     
     total_w = w_macro + w_tech + w_global + w_fear
@@ -378,3 +378,4 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
+
