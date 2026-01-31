@@ -96,60 +96,49 @@ def load_data():
     
     return kospi, sp500, exchange_rate, us_10y, us_2y, vix, copper, freight, wti, dxy, sector_raw, sector_tickers
 
-# 4.5 글로벌 경제 뉴스 및 국내 증권 보고서 RSS 함수 (변경 적용)
+# 4.5 글로벌 경제 뉴스 및 국내 증권 보고서 RSS 함수 (수정 적용)
 @st.cache_data(ttl=600)
 def get_market_news():
-    # 글로벌 경제 뉴스 RSS 대안 서비스 활용 (Yahoo Finance & Investing.com)
-    # 실제 환경에서는 feedparser 라이브러리 사용을 권장하며, 여기서는 RSS XML 파싱 로직을 시뮬레이션합니다.
-    rss_urls = [
-        "https://finance.yahoo.com/news/rssindex",
-        "https://www.investing.com/rss/news_25.rss"
-    ]
+    # 실제 작동하는 Yahoo Finance 글로벌 뉴스 RSS 주소
+    rss_url = "https://finance.yahoo.com/news/rssindex"
     try:
-        # RSS 피드 데이터를 호출하여 안정적으로 수집 (NewsAPI 한도 문제 해결)
+        res = requests.get(rss_url, timeout=10)
+        soup = BeautifulSoup(res.content, features="xml")
+        items = soup.find_all('item')
         news_items = []
-        for url in rss_urls:
-            res = requests.get(url, timeout=10)
-            soup = BeautifulSoup(res.content, features="xml")
-            items = soup.findAll('item')[:3]
-            for item in items:
-                news_items.append({"title": item.title.text, "link": item.link.text})
-        return news_items[:5]
+        for item in items[:5]:
+            news_items.append({"title": item.title.text, "link": item.link.text})
+        return news_items
     except:
         return []
 
 def get_analyst_reports():
-    # 국내 증권 보고서 웹페이지 RSS 강제 변환 서비스 활용 (네이버 증권 리포트 변환 주소)
-    # RSS 변환 도구(RSS.app 등)를 통해 생성된 고정 피드 주소를 호출하여 크롤링 차단 우회
-    rss_converted_url = "https://rss.app/feeds/example_naver_finance_reports.xml" 
+    # 네이버 증권 리포트 크롤링 백업 로직을 우선 실행하여 정보 표시 보장
+    url = "https://finance.naver.com/research/company_list.naver"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
     try:
-        res = requests.get(rss_converted_url, timeout=10)
-        soup = BeautifulSoup(res.content, features="xml")
-        items = soup.findAll('item')[:10]
+        res = requests.get(url, headers=headers, timeout=10)
+        res.encoding = 'euc-kr'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        rows = soup.select("table.type_1 tr")
         reports = []
-        for item in items:
-            # 리포트 제목, 종목명, 출처 추출 로직
-            title_text = item.title.text
-            source = item.author.text if item.author else "증권사"
-            reports.append({"제목": title_text, "종목": "분석종목", "출처": source})
+        for r in rows:
+            if len(reports) >= 10: break
+            if r.select_one("td.alpha"):
+                tds = r.select("td")
+                reports.append({"제목": tds[1].get_text().strip(), "종목": tds[0].get_text().strip(), "출처": tds[2].get_text().strip()})
+        if reports: return reports
+        
+        # 만약 크롤링 실패 시 RSS 변환 주소 시도 (대안)
+        rss_converted_url = "https://rss.app/feeds/example_naver_finance_reports.xml" 
+        res_rss = requests.get(rss_converted_url, timeout=5)
+        soup_rss = BeautifulSoup(res_rss.content, features="xml")
+        items = soup_rss.find_all('item')
+        for item in items[:10]:
+            reports.append({"제목": item.title.text, "종목": "분석종목", "출처": "RSS"})
         return reports
     except:
-        # RSS 서비스 점검 시 기존 BeautifulSoup 크롤링을 백업으로 유지 (스테이블 보존)
-        url = "https://finance.naver.com/research/company_list.naver"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        try:
-            res = requests.get(url, headers=headers, timeout=10)
-            res.encoding = 'euc-kr'
-            soup = BeautifulSoup(res.text, 'html.parser')
-            rows = soup.select("table.type_1 tr")
-            reports = []
-            for r in rows:
-                if len(reports) >= 10: break
-                if r.select_one("td.alpha"):
-                    tds = r.select("td")
-                    reports.append({"제목": tds[1].get_text().strip(), "종목": tds[0].get_text().strip(), "출처": tds[2].get_text().strip()})
-            return reports
-        except: return []
+        return []
 
 try:
     with st.spinner('시차 상관관계 및 ML 가중치 분석 중...'):
@@ -235,7 +224,7 @@ try:
     본 대시보드의 초기 가중치는 **'시차 상관관계(Lagged Correlation)'** 및 **'특성 기여도(Feature Importance)'** 알고리즘을 통해 산출되었습니다.
     1. **시차 최적화**: 각 매크로 지표가 KOSPI에 영향을 주기까지의 과거 지연 시간(Lag)을 계산합니다.
     2. **기여도 분석**: 머신러닝의 변수 중요도 산출 방식을 통해 통계적 영향력을 계산합니다.
-    3. **동적 가중치**: 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
+    3. **동적 가중치**: 최근 1년간의 데이터 흐름을 기반으로, 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
     """)
     
     st.sidebar.markdown("---")
@@ -286,13 +275,15 @@ try:
         news_list = get_market_news()
         if news_list:
             for a in news_list: st.markdown(f"- [{a['title']}]({a['link']})")
-        else: st.info("현재 뉴스를 불러올 수 없습니다.")
+        else:
+            st.info("현재 뉴스를 불러올 수 없습니다. RSS 피드 상태를 확인하세요.")
     with cr:
         st.subheader("📝 국내 증권 보고서 (RSS)")
         reports = get_analyst_reports()
         if reports:
             st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
-        else: st.info("현재 보고서를 불러올 수 없습니다. (RSS 서비스를 확인하십시오.)")
+        else:
+            st.info("현재 보고서를 불러올 수 없습니다. 네이버 증권 연결 상태를 확인하세요.")
 
     # 7. 백테스팅 섹션 (요청 반영: 설명 및 상관계수 가이드 복원, 설명력 삭제)
     st.markdown("---")
