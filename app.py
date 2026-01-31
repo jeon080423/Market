@@ -261,49 +261,55 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
+        # 게시글 간 상하 여백 최소화 스타일 추가
+        st.markdown("""
+            <style>
+            .stMarkdown p { margin-bottom: 2px !important; }
+            .element-container { margin-bottom: 2px !important; }
+            </style>
+            """, unsafe_allow_html=True)
+
         # 게시글 목록 표시 (위로 올림)
         board_container = st.container(height=300)
         with board_container:
             if not st.session_state.board_data:
                 st.write("등록된 의견이 없습니다.")
             for idx, post in enumerate(st.session_state.board_data):
-                bc1, bc2 = st.columns([4, 1])
+                bc1, bc2 = st.columns([6, 1])
                 bc1.markdown(f"**{post['Author']}**: {post['Content']} <small style='color:gray;'>({post['Date']})</small>", unsafe_allow_html=True)
                 
-                with bc2.popover("⚙️"):
+                with bc2.popover("⚙️", help="삭제"):
                     if is_admin:
-                        st.info("관리자 권한: 즉시 삭제 가능")
+                        st.info("관리자 권한")
                         if st.button("삭제", key=f"del_admin_{idx}"):
                             st.session_state.board_data.pop(idx)
                             st.rerun()
                     else:
-                        input_pw = st.text_input("비밀번호 입력", type="password", key=f"pw_{idx}")
+                        input_pw = st.text_input("비밀번호", type="password", key=f"pw_{idx}")
                         if st.button("삭제", key=f"del_{idx}"):
                             if input_pw == post['Password']:
                                 st.session_state.board_data.pop(idx)
-                                st.success("삭제되었습니다.")
                                 st.rerun()
                             else:
-                                st.error("비밀번호 불일치")
+                                st.error("불일치")
 
-        # 글쓰기 폼 (아래로 내림 및 한 줄 형식 구성)
+        # 글쓰기 폼 (작성 폼과 등록 단추까지 모두 한 줄 배치)
         st.markdown("---")
         with st.form("board_form", clear_on_submit=True):
-            f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3, 1])
+            f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3.5, 0.8])
             u_name = f_col1.text_input("작성자", value="익명", label_visibility="collapsed", placeholder="작성자")
-            u_pw = f_col2.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비밀번호(필수)")
-            u_content = f_col3.text_input("의견(최대 50자)", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견을 입력하세요")
-            submit = st.form_submit_button("등록")
+            u_pw = f_col2.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비번(필수)")
+            u_content = f_col3.text_input("의견", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견 입력 (최대 50자)")
+            submit = f_col4.form_submit_button("등록")
             
             if submit:
-                # 욕설 필터링 (널리 알려진 기본 욕설 예시)
                 bad_words = ["바보", "멍청이", "개새끼", "시발", "씨발", "병신", "미친", "지랄"]
                 if any(word in u_content for word in bad_words):
-                    st.error("부적절한 표현이 포함되어 있습니다.")
+                    st.error("부적절한 표현 포함")
                 elif not u_pw:
-                    st.error("비밀번호를 입력해야 합니다.")
+                    st.error("비밀번호 필수")
                 elif not u_content:
-                    st.error("내용을 입력해주세요.")
+                    st.error("내용 입력")
                 else:
                     new_post = {
                         "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -312,7 +318,6 @@ try:
                         "Password": u_pw
                     }
                     st.session_state.board_data.insert(0, new_post)
-                    st.success("의견이 등록되었습니다.")
                     st.rerun()
 
     # 7. 백테스팅
@@ -435,4 +440,3 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
