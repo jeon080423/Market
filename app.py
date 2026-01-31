@@ -43,7 +43,7 @@ GSHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?form
 # ⚠️ 반드시 새로 배포한 웹 앱 URL을 아래에 입력하세요.
 GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyli4kg7O_pxUOLAOFRCCiyswB5TXrA0RUMvjlTirSxLi4yz3tXH1YoGtNUyjztpDsb/exec" 
 
-# CSS 주입: 제목 폰트 유동성 및 가이드북 간격 조정
+# CSS 주입: 제목 폰트 유동성 및 가이드북 간격/정렬 조정
 st.markdown("""
     <style>
     /* 메인 제목 유동적 폰트 크기 설정 */
@@ -51,11 +51,14 @@ st.markdown("""
         font-size: clamp(24px, 4vw, 48px) !important;
     }
     
-    /* 지수 가이드북 섹션의 간격 및 폰트 조정 */
+    /* 지수 가이드북 제목 스타일 */
     .guide-header {
         font-size: clamp(18px, 2.5vw, 28px) !important;
         font-weight: 600;
-        margin-bottom: 10px !important;
+        /* 제목과 표 사이 간격 (한 줄 띄움 효과) */
+        margin-bottom: 30px !important; 
+        /* 그래프 하단 정렬을 위해 전체 텍스트 블록을 아래로 이동 */
+        margin-top: 60px !important;    
         padding-top: 10px !important;
     }
     
@@ -69,10 +72,11 @@ st.markdown("""
     div[data-testid="stMarkdownContainer"] table td {
         font-size: clamp(12px, 1.1vw, 16px) !important; /* 표 텍스트 유동성 */
         word-wrap: break-word !important;
-        padding: 8px 4px !important;
+        /* 셀 높이를 늘려 표의 전체 높이를 그래프와 맞춤 */
+        padding: 12px 4px !important; 
     }
     
-    /* 수평선(hr) 여백 조정 - 버튼과의 거리감 균형 */
+    /* 수평선(hr) 여백 조정 */
     hr {
         margin-top: 1rem !important;
         margin-bottom: 1rem !important;
@@ -305,19 +309,17 @@ try:
     c_gauge, c_guide = st.columns([1, 1.6])
 
     with c_guide: # 가이드 (오른쪽)
-        # HTML 마크다운으로 제목 구현 (유동적 폰트 적용)
+        # HTML 마크다운으로 제목 구현 (유동적 폰트 적용 + 상단 여백 추가로 위치 조정)
         st.markdown('<p class="guide-header">💡 지수를 더 똑똑하게 보는 법</p>', unsafe_allow_html=True)
             
         # 표 내용 및 스타일
         st.markdown(f"""
-        
-
-          | 점수 | 상태 | 권장 대응 (Action Plan) |
-          | :--- | :--- | :--- |
-          | **0-40** | **Safe** | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
-          | **40-60** | **Watch** | **현금 비중 조절 시작.** 추가 매수는 지양하고, 수익이 난 종목은 일부 차익 실현 고려. |
-          | **60-80** | **Danger** | **방어적 운용 및 리스크 관리.** 주식 비중을 50% 이하로 축소. 변동성이 낮은 배당주나 가치주 위주 재편. |
-          | **80-100** | **Panic** | **최우선 리스크 관리.** 가급적 현금 비중 최대화. 신용/미수 사용 전면 금지 및 손절매 기준 엄격 적용. |
+        | 점수 | 상태 | 권장 대응 (Action Plan) |
+        | :--- | :--- | :--- |
+        | **0-40** | **Safe** | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
+        | **40-60** | **Watch** | **현금 비중 조절 시작.** 추가 매수는 지양하고, 수익이 난 종목은 일부 차익 실현 고려. |
+        | **60-80** | **Danger** | **방어적 운용 및 리스크 관리.** 주식 비중을 50% 이하로 축소. 변동성이 낮은 배당주나 가치주 위주 재편. |
+        | **80-100** | **Panic** | **최우선 리스크 관리.** 가급적 현금 비중 최대화. 신용/미수 사용 전면 금지 및 손절매 기준 엄격 적용. |
         
         *※ 본 지수는 과거 데이터를 기반으로 한 통계적 수치이며, 예상치 못한 블랙스완 발생 시 즉각 대응이 어려울 수 있습니다.*
         """)
@@ -552,4 +554,3 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
