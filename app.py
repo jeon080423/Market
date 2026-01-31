@@ -252,17 +252,25 @@ try:
 
     # 6. 메인 게이지
     st.markdown("---")
-    c_gd, c_gg = st.columns([1.5, 1]) # 표를 위해 왼쪽 컬럼 폭을 조금 더 확보
+    c_gd, c_gg = st.columns([1.6, 1])
 
     with c_gd:
         st.subheader("💡 지수를 더 똑똑하게 보는 법")
         
-        # 표 열 폭 조절을 위한 CSS 추가
+        # 표 열 폭 조절을 위한 CSS 추가 (게이지 차트 간섭 최소화)
         st.markdown("""
             <style>
-            /* 점수 열(1번째), 현재 상황 및 시장 심리 열(3번째) 폭 확장 */
-            table th:nth-child(1), table td:nth-child(1) { width: 100px !important; }
-            table th:nth-child(3), table td:nth-child(3) { width: 350px !important; }
+            div[data-testid="stMarkdownContainer"] table {
+                width: 100% !important;
+            }
+            div[data-testid="stMarkdownContainer"] table th:nth-child(1), 
+            div[data-testid="stMarkdownContainer"] table td:nth-child(1) {
+                min-width: 100px !important;
+            }
+            div[data-testid="stMarkdownContainer"] table th:nth-child(3), 
+            div[data-testid="stMarkdownContainer"] table td:nth-child(3) {
+                min-width: 320px !important;
+            }
             </style>
             """, unsafe_allow_html=True)
             
@@ -279,7 +287,12 @@ try:
         *※ 본 지수는 과거 데이터를 기반으로 한 통계적 수치이며, 예상치 못한 블랙스완 발생 시 즉각 대응이 어려울 수 있습니다.*
         """)
     with c_gg:
-        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=total_risk_index, title={'text': "종합 시장 위험 지수"},
+        # 게이지 레이아웃 최적화 (숫자 중앙 정렬)
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number", 
+            value=total_risk_index, 
+            title={'text': "종합 시장 위험 지수", 'font': {'size': 20}},
+            number={'font': {'size': 80}, 'suffix': ""},
             gauge={
                 'axis': {'range': [0, 100]}, 
                 'bar': {'color': "black"},
@@ -289,6 +302,13 @@ try:
                     {'range': [60, 80], 'color': "orange"}, 
                     {'range': [80, 100], 'color': "red"}
                 ]}))
+        
+        # 여백(margin)을 auto로 설정하여 중앙 배치 유도
+        fig_gauge.update_layout(
+            margin=dict(l=40, r=40, t=80, b=40),
+            height=350,
+            autosize=True
+        )
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     # 뉴스 및 익명 게시판
@@ -300,7 +320,6 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
-        # 스타일 보강
         st.markdown("""
             <style>
             .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; }
