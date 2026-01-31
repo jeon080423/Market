@@ -325,7 +325,7 @@ try:
 
     # 7.5 블랙스완 비교 시나리오
     st.markdown("---")
-    st.subheader(" Swan 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
+    st.subheader("Swan 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
     def get_norm_risk_proxy(ticker, start, end):
         data = yf.download(ticker, start=start, end=end)['Close']
         if isinstance(data, pd.DataFrame): data = data.iloc[:, 0]
@@ -421,3 +421,4 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
+
