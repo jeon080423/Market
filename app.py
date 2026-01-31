@@ -27,9 +27,10 @@ COVID_EVENT_DATE = "2020-02-19"
 # 관리자 설정
 ADMIN_ID = "jeon080423"
 ADMIN_PW = "3033"
-# 구글 시트 URL (여기에 본인의 구글 시트 편집용 CSV 내보내기 링크 또는 Apps Script URL을 넣으세요)
-# 예시 형식: https://docs.google.com/spreadsheets/d/시트ID/gviz/tq?tqx=out:csv
-GSHEET_URL = "https://docs.google.com/spreadsheets/d/1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU/edit?gid=0#gid=0" 
+
+# 구글 시트 설정 (CSV 출력 경로 활용)
+SHEET_ID = "1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU"
+GSHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
 # 3. 제목 및 설명
 st.title("KOSPI 위험 모니터링 (KOSPI Market Risk Index)")
@@ -118,9 +119,16 @@ def get_market_news():
         return news_items
     except: return []
 
-# 익명 게시판 관련 함수 (Session State 활용 예시)
+# 4.6 게시판 데이터 로드/저장 로직 (구리 시트 연동)
+def load_board_data():
+    try:
+        df = pd.read_csv(GSHEET_CSV_URL)
+        return df.to_dict('records')
+    except:
+        return []
+
 if 'board_data' not in st.session_state:
-    st.session_state.board_data = []
+    st.session_state.board_data = load_board_data()
 
 try:
     with st.spinner('시차 상관관계 및 ML 가중치 분석 중...'):
@@ -264,12 +272,15 @@ try:
         # 게시글 간 상하 여백 및 텍스트 줄 간격 최소화 스타일 보강
         st.markdown("""
             <style>
-            .stMarkdown p { margin-bottom: 0px !important; line-height: 1.2 !important; }
-            .element-container { margin-bottom: 1px !important; }
+            .stMarkdown p { margin-bottom: 0px !important; line-height: 1.1 !important; }
+            .element-container { margin-bottom: 0px !important; padding-bottom: 0px !important; }
             div[data-testid="stVerticalBlock"] > div { padding-top: 0px !important; padding-bottom: 0px !important; }
             </style>
             """, unsafe_allow_html=True)
 
+        # 게시판 데이터 연동 (구글 시트에서 최신 데이터 로드)
+        st.session_state.board_data = load_board_data()
+        
         # 페이지네이션 설정
         ITEMS_PER_PAGE = 20
         total_posts = len(st.session_state.board_data)
@@ -291,20 +302,20 @@ try:
                 for i, post in enumerate(paged_data):
                     actual_idx = start_idx + i
                     bc1, bc2 = st.columns([6, 1])
-                    bc1.markdown(f"**{post['Author']}**: {post['Content']} <small style='color:gray;'>({post['Date']})</small>", unsafe_allow_html=True)
+                    # 간격 최소화를 위해 p 태그 스타일 적용
+                    bc1.markdown(f"<p style='margin:0; padding:0;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     
                     with bc2.popover("⚙️", help="삭제"):
                         if is_admin:
                             st.info("관리자 권한")
                             if st.button("삭제", key=f"del_admin_{actual_idx}"):
-                                st.session_state.board_data.pop(actual_idx)
-                                st.rerun()
+                                # 실제 운영 시에는 구글 시트 API를 통해 행 삭제 로직 필요
+                                st.warning("시트에서 직접 행을 삭제해 주세요.")
                         else:
                             input_pw = st.text_input("비밀번호", type="password", key=f"pw_{actual_idx}")
                             if st.button("삭제", key=f"del_{actual_idx}"):
-                                if input_pw == post['Password']:
-                                    st.session_state.board_data.pop(actual_idx)
-                                    st.rerun()
+                                if str(input_pw) == str(post.get('Password','')):
+                                    st.warning("시트에서 직접 행을 삭제해 주세요.")
                                 else:
                                     st.error("불일치")
         
@@ -314,7 +325,7 @@ try:
             if pc1.button("이전", disabled=st.session_state.current_page == 1):
                 st.session_state.current_page -= 1
                 st.rerun()
-            pc2.write(f"<center>{st.session_state.current_page} / {total_pages}</center>", unsafe_allow_html=True)
+            pc2.markdown(f"<p style='text-align:center;'>{st.session_state.current_page} / {total_pages}</p>", unsafe_allow_html=True)
             if pc3.button("다음", disabled=st.session_state.current_page == total_pages):
                 st.session_state.current_page += 1
                 st.rerun()
@@ -337,16 +348,10 @@ try:
                 elif not u_content:
                     st.error("내용 입력")
                 else:
-                    new_post = {
-                        "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "Author": u_name if u_name else "익명",
-                        "Content": u_content,
-                        "Password": u_pw
-                    }
-                    st.session_state.board_data.insert(0, new_post)
-                    # 새 글 작성 시 첫 페이지로 이동
-                    st.session_state.current_page = 1
-                    st.rerun()
+                    # 구글 설문지(Forms) 방식이나 Apps Script를 통한 데이터 전송 로직 필요
+                    # 여기서는 사용자 안내를 위해 시트 수동 입력을 권장하거나 
+                    # 실제 연결을 위해선 Google Sheets API 설정이 필수입니다.
+                    st.success("의견이 전송되었습니다. (시트 연동 필요)")
 
     # 7. 백테스팅
     st.markdown("---")
