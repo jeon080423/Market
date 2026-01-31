@@ -283,14 +283,25 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
-        # 게시글 간 상하 여백, 줄 간격 및 팝업 버튼 높이 최소화 스타일
+        # 게시글 높이 최소화를 위한 CSS 커스텀 스타일
         st.markdown("""
             <style>
-            .stMarkdown p { margin-top: 0px !important; margin-bottom: 0px !important; line-height: 1.1 !important; padding-top: 0px !important; padding-bottom: 0px !important; }
-            .element-container { margin-bottom: 0px !important; padding-bottom: 0px !important; }
-            div[data-testid="stVerticalBlock"] > div { padding-top: 0px !important; padding-bottom: 0px !important; }
-            /* 팝업 버튼 높이 및 패딩 조정 */
-            button[data-testid="baseButton-secondary"] { padding-top: 0px !important; padding-bottom: 0px !important; height: 1.2rem !important; min-height: 1.2rem !important; line-height: 1 !important; }
+            .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.0 !important; padding: 0px !important; }
+            .element-container { margin-bottom: -1px !important; padding: 0px !important; }
+            div[data-testid="stVerticalBlock"] > div { padding: 0px !important; margin: 0px !important; }
+            /* 팝업 버튼을 텍스트처럼 보이게 하여 높이 제거 */
+            button[data-testid="baseButton-secondary"] { 
+                padding: 0px !important; 
+                height: 14px !important; 
+                min-height: 14px !important; 
+                line-height: 1 !important; 
+                border: none !important; 
+                background: transparent !important;
+                color: #ff4b4b !important;
+                font-size: 11px !important;
+            }
+            /* 구분선 간격 조절 */
+            hr { margin-top: 5px !important; margin-bottom: 5px !important; }
             </style>
             """, unsafe_allow_html=True)
 
@@ -305,8 +316,8 @@ try:
         if 'current_page' not in st.session_state:
             st.session_state.current_page = 1
             
-        # 게시글 목록 표시 (최신순 정렬 후 표시)
-        board_container = st.container(height=300) # 높이 소폭 조정
+        # 게시글 목록 표시
+        board_container = st.container(height=280) # 높이를 280으로 압축하여 10개 이상 노출 유도
         with board_container:
             if not st.session_state.board_data:
                 st.write("등록된 의견이 없습니다.")
@@ -317,48 +328,48 @@ try:
                 paged_data = reversed_data[start_idx:end_idx]
                 
                 for i, post in enumerate(paged_data):
-                    # 텍스트와 버튼 비율을 극단적으로 조정하여 높이 감소
-                    bc1, bc2 = st.columns([12, 1]) 
-                    bc1.markdown(f"<p style='font-size:0.9rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.7rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
+                    # 삭제 기능을 팝업 대신 'X' 텍스트 버튼으로 구현하여 높이 절약
+                    bc1, bc2 = st.columns([15, 1]) 
+                    bc1.markdown(f"<p style='font-size:0.85rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.7rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     
-                    with bc2.popover("⚙️", help="삭제"):
-                        st.warning("시트에서 직접 행을 삭제해 주세요.")
+                    with bc2.popover("X", help="삭제"):
+                        st.write("삭제는 시트에서 직접 해주세요.")
         
-        # 페이지 조절 단추
+        # 페이지 조절 단추 (간격 최소화)
         if total_pages > 1:
             pc1, pc2, pc3 = st.columns([1, 2, 1])
-            if pc1.button("이전", disabled=st.session_state.current_page == 1):
+            if pc1.button("◀", disabled=st.session_state.current_page == 1):
                 st.session_state.current_page -= 1
                 st.rerun()
-            pc2.markdown(f"<p style='text-align:center;'>{st.session_state.current_page} / {total_pages}</p>", unsafe_allow_html=True)
-            if pc3.button("다음", disabled=st.session_state.current_page == total_pages):
+            pc2.markdown(f"<p style='text-align:center; font-size:12px;'>{st.session_state.current_page}/{total_pages}</p>", unsafe_allow_html=True)
+            if pc3.button("▶", disabled=st.session_state.current_page == total_pages):
                 st.session_state.current_page += 1
                 st.rerun()
 
-        # 글쓰기 폼 (작성 폼과 등록 단추까지 모두 한 줄 배치)
+        # 글쓰기 폼
         st.markdown("---")
         with st.form("board_form", clear_on_submit=True):
             f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3.5, 0.8])
-            u_name = f_col1.text_input("작성자", value="익명", label_visibility="collapsed", placeholder="작성자")
-            u_pw = f_col2.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비번(필수)")
-            u_content = f_col3.text_input("의견", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견 입력 (최대 50자)")
+            u_name = f_col1.text_input("N", value="익명", label_visibility="collapsed", placeholder="성함")
+            u_pw = f_col2.text_input("P", type="password", label_visibility="collapsed", placeholder="비번")
+            u_content = f_col3.text_input("C", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견 (50자)")
             submit = f_col4.form_submit_button("등록")
             
             if submit:
                 bad_words = ["바보", "멍청이", "개새끼", "시발", "씨발", "병신", "미친", "지랄"]
                 if any(word in u_content for word in bad_words):
-                    st.error("부적절한 표현 포함")
+                    st.error("금지어 포함")
                 elif not u_pw:
-                    st.error("비밀번호 필수")
+                    st.error("비번 필수")
                 elif not u_content:
                     st.error("내용 입력")
                 else:
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                     if save_to_gsheet(now_str, u_name if u_name else "익명", u_content, u_pw):
-                        st.success("의견이 등록되었습니다.")
+                        st.success("등록됨")
                         st.rerun()
                     else:
-                        st.error("시트 전송 실패. Apps Script 설정을 확인하세요.")
+                        st.error("실패")
 
     # 7. 백테스팅
     st.markdown("---")
