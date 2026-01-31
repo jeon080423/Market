@@ -26,9 +26,19 @@ NEWS_API_KEY = "13cfedc9823541c488732fb27b02fa25"
 # 코로나19 폭락 기점 날짜 정의 (S&P 500 고점 기준)
 COVID_EVENT_DATE = "2020-02-19"
 
-# 관리자 설정
-ADMIN_ID = "jeon080423"
-ADMIN_PW = "3033"
+# 관리자 설정 (보안 강화: st.secrets 사용)
+# 로컬에서는 .streamlit/secrets.toml 파일에, 배포 서버에서는 Secrets 설정에 값을 입력해야 합니다.
+try:
+    ADMIN_ID = st.secrets["admin"]["id"]
+    ADMIN_PW = st.secrets["admin"]["pw"]
+except FileNotFoundError:
+    # secrets 파일이 없을 경우 예외 처리
+    ADMIN_ID = "admin_temp" 
+    ADMIN_PW = "temp_pass" 
+except KeyError:
+    # 키가 잘못되었을 경우
+    ADMIN_ID = "admin_temp"
+    ADMIN_PW = "temp_pass"
 
 # 구글 시트 설정
 SHEET_ID = "1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU"
@@ -296,10 +306,11 @@ try:
     with c_guide: # 가이드 (오른쪽)
         # HTML 마크다운으로 제목 구현 (유동적 폰트 적용)
         st.markdown('<p class="guide-header">💡 지수를 더 똑똑하게 보는 법</p>', unsafe_allow_html=True)
-                   
+            
         # 표 내용 및 스타일
         st.markdown(f"""
-        
+        지수 구간별 상세 대응 전략은 다음과 같습니다.
+
         | 점수 | 상태 | 권장 대응 (Action Plan) |
         | :--- | :--- | :--- |
         | **0-40** | **Safe** | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
@@ -476,74 +487,4 @@ try:
         st.subheader("원/달러 환율")
         fx_th = float(fx_s.last('365D').mean() * 1.02)
         st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
-        st.info("**환율**: +2% 상회 시 외국인 자본 유출 심화")
-    with r1_c3:
-        st.subheader("실물 경기 지표 (Copper)")
-        st.plotly_chart(create_chart(cp_s, "Copper", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
-        st.info("**실물 경기**: 구리 가격 하락은 수요 둔화 선행 신호")
-
-    r2_c1, r2_c2, r2_c3 = st.columns(3)
-    with r2_c1:
-        st.subheader("장단기 금리차")
-        st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, "0 이하 역전 시 위험"), use_container_width=True)
-        st.info("**금리차**: 금리 역전은 경기 침체 강력 전조")
-    with r2_c2:
-        st.subheader("KOSPI 기술적 분석")
-        ks_recent = ks_s.last('30D'); fig_ks = go.Figure(); fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가"))
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(dash='dot')))
-        fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
-        st.plotly_chart(fig_ks, use_container_width=True); st.info("**기술적 분석**: 20일선 하회 시 단기 추세 하락")
-    with r2_c3:
-        st.subheader("VIX 공포 지수")
-        st.plotly_chart(create_chart(vx_s, "VIX", 30, "30 돌파 시 패닉"), use_container_width=True)
-        st.info("**VIX 지수**: 지수 급등은 투매 가능성 시사")
-
-    st.markdown("---")
-    r3_c1, r3_c2, r3_c3 = st.columns(3)
-    with r3_c1:
-        st.subheader("글로벌 물동량 지표 (BDRY)")
-        fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
-        st.plotly_chart(create_chart(fr_s, "BDRY", fr_th, "물동량 급감 시 위험"), use_container_width=True)
-        st.info("**물동량**: 지지선 하향 돌파 시 경기 수축 신호")
-    with r3_c2:
-        st.subheader("에너지 가격 (WTI 원유)")
-        wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
-        st.plotly_chart(create_chart(wt_s, "WTI", wt_th, "비용 압력 증가"), use_container_width=True)
-        st.info("**유가**: 급등 시 생산 비용 상승 및 인플레 압박")
-    with r3_c3:
-        st.subheader("달러 인덱스 (DXY)")
-        dx_th = round(float(dx_s.last('365D').mean() * 1.03), 1)
-        st.plotly_chart(create_chart(dx_s, "DXY", dx_th, "유동성 위축 위험"), use_container_width=True)
-        st.info("**달러 가치**: 달러 상승은 유동성 축소 및 위험자산 회피")
-
-    # 10. 표준화 비교 및 섹터 히트맵
-    st.markdown("---")
-    st.subheader("📊 지수간 동조화 및 섹터 분석")
-    sp_norm = (sp_s - sp_s.mean()) / sp_s.std(); fr_norm = (fr_s - fr_s.mean()) / fr_s.std()
-    fig_norm = go.Figure(); fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Std)", line=dict(color='blue')))
-    fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="BDRY (Std)", line=dict(color='orange')))
-    fig_norm.update_layout(title="Z-Score 동조화 추세"); st.plotly_chart(fig_norm, use_container_width=True)
-    st.info("두 지표의 단위를 통일하여 변동 궤적을 비교합니다. 물동량이 주가지수보다 선행/동행하는지 확인하세요.")
-
-    sector_perf = []
-    for n, t in sector_map.items():
-        try:
-            cur = sector_raw[t].iloc[-1]; pre = sector_raw[t].iloc[-2]
-            sector_perf.append({"섹터": n, "등락률": round(((cur - pre) / pre) * 100, 2)})
-        except: pass
-    if sector_perf:
-        df_p = pd.DataFrame(sector_perf)
-        fig_h = px.bar(df_p, x="섹터", y="등락률", color="등락률", color_continuous_scale='RdBu_r', text="등락률", title="금일 섹터별 대표 종목 등락 현황 (%)")
-        st.plotly_chart(fig_h, use_container_width=True); st.info("종합 위험 지수가 상승할 때 방어 섹터와 민감 섹터의 등락을 비교하세요.")
-
-except Exception as e:
-    st.error(f"오류 발생: {str(e)}")
-
-st.caption(f"Last updated: {datetime.now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
-
-
-
-
-
-
+        st
