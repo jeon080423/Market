@@ -125,8 +125,10 @@ def get_market_news():
 # 4.6 게시판 데이터 로드/저장 로직
 def load_board_data():
     try:
-        # 캐시 무효화를 위해 타임스탬프 파라미터 추가
-        df = pd.read_csv(f"{GSHEET_CSV_URL}&cache_bust={datetime.now().timestamp()}")
+        # 캐시 방지를 위해 랜덤 쿼리 추가 및 데이터 타입 지정
+        resp = requests.get(f"{GSHEET_CSV_URL}&cache_bust={datetime.now().timestamp()}")
+        from io import StringIO
+        df = pd.read_csv(StringIO(resp.text), dtype=str) # 모든 데이터를 문자열로 처리하여 비교 정확도 향상
         return df.to_dict('records')
     except:
         return []
@@ -140,11 +142,11 @@ def save_to_gsheet(date, author, content, password, action="append"):
             "password": str(password),
             "action": action
         }
-        res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload), timeout=15)
-        # 성공 응답 확인 및 세션 상태 갱신을 위해 True 반환
-        if res.status_code in [200, 302]:
-            return True
-        return False
+        # post 시 headers 명시
+        headers = {'Content-Type': 'application/json'}
+        res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload), headers=headers, timeout=15)
+        # 성공 시 응답 본문에 'Success', 'Deleted', 'Updated'가 포함되는지 확인
+        return res.status_code in [200, 302]
     except Exception as e:
         st.error(f"상세 에러: {e}")
         return False
@@ -288,7 +290,6 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
-        # 게시글 간 상하 여백, 폰트 크기(1.1rem) 스타일 보강
         st.markdown("""
             <style>
             .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; }
@@ -301,7 +302,6 @@ try:
             </style>
             """, unsafe_allow_html=True)
 
-        # 게시판 데이터 로드 (매번 최신 데이터를 시트에서 가져옴)
         st.session_state.board_data = load_board_data()
         
         ITEMS_PER_PAGE = 20
@@ -314,37 +314,34 @@ try:
             if not st.session_state.board_data:
                 st.write("의견이 없습니다.")
             else:
-                # 데이터를 역순으로 정렬(최신순)
                 reversed_data = st.session_state.board_data[::-1]
                 start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
                 end_idx = start_idx + ITEMS_PER_PAGE
                 paged_data = reversed_data[start_idx:end_idx]
                 
                 for i, post in enumerate(paged_data):
-                    # 고유 키 생성을 위한 인덱스
-                    actual_idx = len(st.session_state.board_data) - 1 - (start_idx + i)
+                    # 전체 데이터에서의 고유 인덱스 계산 (역순 기준)
+                    actual_key = f"post_{start_idx + i}"
                     bc1, bc2 = st.columns([12, 1.5]) 
                     bc1.markdown(f"<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     
                     with bc2.popover("편집", help="수정/삭제"):
-                        check_pw = st.text_input("비번 확인", type="password", key=f"check_{actual_idx}")
-                        if str(check_pw) == str(post.get('Password','')):
-                            new_c = st.text_input("내용 수정", value=post.get('Content',''), key=f"edit_{actual_idx}")
+                        check_pw = st.text_input("비번 확인", type="password", key=f"check_{actual_key}")
+                        # 시트에서 온 비밀번호와 입력한 비밀번호를 문자열로 비교
+                        stored_pw = str(post.get('Password', '')).strip()
+                        if check_pw and check_pw.strip() == stored_pw:
+                            new_c = st.text_input("내용 수정", value=post.get('Content',''), key=f"edit_{actual_key}")
                             c1, c2 = st.columns(2)
-                            if c1.button("수정", key=f"ub_{actual_idx}"):
-                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_c, check_pw, action="update"):
+                            if c1.button("수정", key=f"ub_{actual_key}"):
+                                # 정확한 날짜 매칭을 위해 원본 date 사용
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_c, stored_pw, action="update"):
                                     st.success("수정됨")
-                                    # 명시적으로 세션 데이터 업데이트 후 리런
-                                    st.session_state.board_data = load_board_data()
                                     st.rerun()
-                                else: st.error("실패")
-                            if c2.button("삭제", key=f"db_{actual_idx}"):
-                                if save_to_gsheet(post.get('date',''), post.get('Author',''), "", check_pw, action="delete"):
+                            if c2.button("삭제", key=f"db_{actual_key}"):
+                                # 삭제 시 content는 무의미하나 action="delete"로 분기
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), "", stored_pw, action="delete"):
                                     st.success("삭제됨")
-                                    # 명시적으로 세션 데이터 업데이트 후 리런
-                                    st.session_state.board_data = load_board_data()
                                     st.rerun()
-                                else: st.error("실패")
                         elif check_pw:
                             st.error("비번 불일치")
         
@@ -373,9 +370,9 @@ try:
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                     if save_to_gsheet(now_str, u_name if u_name else "익명", u_content, u_pw, action="append"):
                         st.success("등록됨")
-                        st.session_state.board_data = load_board_data()
                         st.rerun()
-                    else: st.error("실패")
+                    else:
+                        st.error("실패")
 
     # 7. 백테스팅
     st.markdown("---")
