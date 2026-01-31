@@ -252,9 +252,20 @@ try:
 
     # 6. 메인 게이지
     st.markdown("---")
-    c_gd, c_gg = st.columns([1, 1.5])
+    c_gd, c_gg = st.columns([1.5, 1]) # 표를 위해 왼쪽 컬럼 폭을 조금 더 확보
+
     with c_gd:
         st.subheader("💡 지수를 더 똑똑하게 보는 법")
+        
+        # 표 열 폭 조절을 위한 CSS 추가
+        st.markdown("""
+            <style>
+            /* 점수 열(1번째), 현재 상황 및 시장 심리 열(3번째) 폭 확장 */
+            table th:nth-child(1), table td:nth-child(1) { width: 100px !important; }
+            table th:nth-child(3), table td:nth-child(3) { width: 350px !important; }
+            </style>
+            """, unsafe_allow_html=True)
+            
         st.markdown(f"""
         현재 시장 위험 지수는 **{total_risk_index:.1f}pt**입니다. 지수 구간별 상세 대응 전략은 다음과 같습니다.
 
@@ -289,6 +300,7 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
         
+        # 스타일 보강
         st.markdown("""
             <style>
             .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; }
@@ -329,7 +341,7 @@ try:
                         if chk_pw and chk_pw.strip() == stored_pw:
                             new_val = st.text_input("수정 내용", value=post.get('Content',''), key=f"edit_{unique_id}")
                             btn1, btn2 = st.columns(2)
-                            if btn1.button("수정", key=f"up_{unique_id}"):
+                            if btn1.button("수정 완료", key=f"up_{unique_id}"):
                                 if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="update"):
                                     st.success("수정 성공")
                                     st.rerun()
@@ -488,4 +500,3 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
