@@ -261,45 +261,59 @@ try:
     with cr:
         st.subheader("💬 한 줄 의견 게시판 (익명)")
         
-        # 글쓰기 폼
+        # 게시글 목록 표시 (위로 올림)
+        board_container = st.container(height=300)
+        with board_container:
+            if not st.session_state.board_data:
+                st.write("등록된 의견이 없습니다.")
+            for idx, post in enumerate(st.session_state.board_data):
+                bc1, bc2 = st.columns([4, 1])
+                bc1.markdown(f"**{post['Author']}**: {post['Content']} <small style='color:gray;'>({post['Date']})</small>", unsafe_allow_html=True)
+                
+                with bc2.popover("⚙️"):
+                    if is_admin:
+                        st.info("관리자 권한: 즉시 삭제 가능")
+                        if st.button("삭제", key=f"del_admin_{idx}"):
+                            st.session_state.board_data.pop(idx)
+                            st.rerun()
+                    else:
+                        input_pw = st.text_input("비밀번호 입력", type="password", key=f"pw_{idx}")
+                        if st.button("삭제", key=f"del_{idx}"):
+                            if input_pw == post['Password']:
+                                st.session_state.board_data.pop(idx)
+                                st.success("삭제되었습니다.")
+                                st.rerun()
+                            else:
+                                st.error("비밀번호 불일치")
+
+        # 글쓰기 폼 (아래로 내림 및 한 줄 형식 구성)
+        st.markdown("---")
         with st.form("board_form", clear_on_submit=True):
-            col_id, col_pw = st.columns(2)
-            u_name = col_id.text_input("작성자(익명)", value="익명")
-            u_pw = col_pw.text_input("비밀번호", type="password", help="수정/삭제 시 필요")
-            u_content = st.text_input("한 줄 의견 (최대 50자)", max_chars=50)
+            f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3, 1])
+            u_name = f_col1.text_input("작성자", value="익명", label_visibility="collapsed", placeholder="작성자")
+            u_pw = f_col2.text_input("비밀번호", type="password", label_visibility="collapsed", placeholder="비밀번호(필수)")
+            u_content = f_col3.text_input("의견(최대 50자)", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견을 입력하세요")
             submit = st.form_submit_button("등록")
             
-            if submit and u_content:
-                new_post = {
-                    "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Author": u_name,
-                    "Content": u_content,
-                    "Password": u_pw
-                }
-                st.session_state.board_data.insert(0, new_post)
-                # 구글 시트 저장 로직 (필요 시 GSHEET_URL을 통한 POST 요청 구현)
-                st.success("의견이 등록되었습니다.")
-
-        # 게시글 목록 표시 및 관리
-        for idx, post in enumerate(st.session_state.board_data):
-            c1, c2 = st.columns([4, 1])
-            c1.markdown(f"**{post['Author']}**: {post['Content']} <small style='color:gray;'>({post['Date']})</small>", unsafe_allow_html=True)
-            
-            with c2.popover("⚙️"):
-                if is_admin:
-                    st.info("관리자 권한: 즉시 삭제 가능")
-                    if st.button("삭제", key=f"del_admin_{idx}"):
-                        st.session_state.board_data.pop(idx)
-                        st.rerun()
+            if submit:
+                # 욕설 필터링 (널리 알려진 기본 욕설 예시)
+                bad_words = ["바보", "멍청이", "개새끼", "시발", "씨발", "병신", "미친", "지랄"]
+                if any(word in u_content for word in bad_words):
+                    st.error("부적절한 표현이 포함되어 있습니다.")
+                elif not u_pw:
+                    st.error("비밀번호를 입력해야 합니다.")
+                elif not u_content:
+                    st.error("내용을 입력해주세요.")
                 else:
-                    input_pw = st.text_input("비밀번호 입력", type="password", key=f"pw_{idx}")
-                    if st.button("삭제", key=f"del_{idx}"):
-                        if input_pw == post['Password']:
-                            st.session_state.board_data.pop(idx)
-                            st.success("삭제되었습니다.")
-                            st.rerun()
-                        else:
-                            st.error("비밀번호 불일치")
+                    new_post = {
+                        "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Author": u_name if u_name else "익명",
+                        "Content": u_content,
+                        "Password": u_pw
+                    }
+                    st.session_state.board_data.insert(0, new_post)
+                    st.success("의견이 등록되었습니다.")
+                    st.rerun()
 
     # 7. 백테스팅
     st.markdown("---")
@@ -421,4 +435,3 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
