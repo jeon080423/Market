@@ -7,7 +7,6 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
-import feedparser # 안정적인 RSS 파싱을 위해 추가
 
 # 1. 페이지 설정
 st.set_page_config(page_title="주식 시장 하락 전조 신호 모니터링", layout="wide")
@@ -97,40 +96,45 @@ def load_data():
     
     return kospi, sp500, exchange_rate, us_10y, us_2y, vix, copper, freight, wti, dxy, sector_raw, sector_tickers
 
-# 4.5 글로벌 경제 뉴스 및 국내 증권 보고서 RSS 함수 (수정 적용)
+# 4.5 글로벌 경제 뉴스 및 국내 증권 보고서 수집 함수 (안정화 수정 적용)
 @st.cache_data(ttl=600)
 def get_market_news():
-    # 검증된 글로벌 경제 뉴스 RSS (Google News Financial 및 Yahoo)
-    rss_urls = [
-        "https://news.google.com/rss/search?q=stock+market+risk&hl=en-US&gl=US&ceid=US:en",
-        "https://finance.yahoo.com/news/rssindex"
-    ]
-    news_items = []
+    # 실제 작동 가능한 Google News RSS 주소 및 User-Agent 추가
+    rss_url = "https://news.google.com/rss/search?q=stock+market+risk&hl=en-US&gl=US&ceid=US:en"
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        for url in rss_urls:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:3]:
-                news_items.append({"title": entry.title, "link": entry.link})
-        return news_items[:5]
+        res = requests.get(rss_url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.content, 'html.parser')
+        items = soup.find_all('item')
+        news_items = []
+        for item in items[:5]:
+            title = item.find('title').text if item.find('title') else "뉴스 제목 없음"
+            link = item.find('link').next_sibling.strip() if item.find('link') else "#"
+            news_items.append({"title": title, "link": link})
+        return news_items
     except:
         return []
 
 def get_analyst_reports():
-    # 국내 증권 보고서: 한국경제 및 네이버 증권 하이브리드 수집
+    # 국내 증권 보고서: 한국경제 및 네이버 증권 하이브리드 수집 로직
     reports = []
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        # 1. 한국경제 증권 RSS 시도
-        hk_feed = feedparser.parse("https://www.hankyung.com/feed/stock")
-        for entry in hk_feed.entries[:5]:
-            reports.append({"제목": entry.title, "종목": "국내증시", "출처": "한국경제"})
+        # 1. 한국경제 증권 뉴스 RSS 수집 (안정적)
+        hk_rss = "https://www.hankyung.com/feed/stock"
+        res_hk = requests.get(hk_rss, headers=headers, timeout=10)
+        soup_hk = BeautifulSoup(res_hk.content, 'html.parser')
+        items_hk = soup_hk.find_all('item')
+        for item in items_hk[:5]:
+            title = item.find('title').text
+            reports.append({"제목": title, "종목": "국내증시", "출처": "한국경제"})
         
-        # 2. 네이버 증권 크롤링 백업 (데이터 확보 보장)
+        # 2. 네이버 증권 리포트 크롤링 백업 (데이터 보장)
         url = "https://finance.naver.com/research/company_list.naver"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(url, headers=headers, timeout=10)
-        res.encoding = 'euc-kr'
-        soup = BeautifulSoup(res.text, 'html.parser')
-        rows = soup.select("table.type_1 tr")
+        res_nv = requests.get(url, headers=headers, timeout=10)
+        res_nv.encoding = 'euc-kr'
+        soup_nv = BeautifulSoup(res_nv.text, 'html.parser')
+        rows = soup_nv.select("table.type_1 tr")
         for r in rows:
             if len(reports) >= 10: break
             if r.select_one("td.alpha"):
@@ -224,7 +228,7 @@ try:
     본 대시보드의 초기 가중치는 **'시차 상관관계(Lagged Correlation)'** 및 **'특성 기여도(Feature Importance)'** 알고리즘을 통해 산출되었습니다.
     1. **시차 최적화**: 각 매크로 지표가 KOSPI에 영향을 주기까지의 과거 지연 시간(Lag)을 계산합니다.
     2. **기여도 분석**: 머신러닝의 변수 중요도 산출 방식을 통해 통계적 영향력을 계산합니다.
-    3. **동적 가중치**: 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
+    3. **동적 가중치**: 최근 1년간의 데이터 흐름을 기반으로, 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
     """)
     
     st.sidebar.markdown("---")
