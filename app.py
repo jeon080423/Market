@@ -31,7 +31,7 @@ st.markdown(f"""
 (마지막 업데이트: {datetime.now().strftime('%H:%M:%S')})
 """)
 
-# --- [복원/추가] 지표 안내서 및 수리적 용어 설명 섹션 ---
+# --- [안내서 섹션] 전문용어 및 수식 ---
 with st.expander("📖 대시보드 사용 가이드 및 수리적 모델 안내 (전문용어 및 수식)"):
     st.subheader("1. 지수 산출 핵심 지표 (Core Indicators)")
     st.write("""
@@ -50,7 +50,7 @@ with st.expander("📖 대시보드 사용 가이드 및 수리적 모델 안내
     st.write("단순 회귀계수($\\beta$)에 각 지표의 표준편차($\\sigma$)를 곱하여, 실제 지수 변동에 기여한 '실질 영향력'을 산출합니다.")
     st.latex(r"Importance_i = |\beta_i| \times \sigma_{X_i}")
     st.markdown("#### **③ Z-Score 표준화 (Standardization)**")
-    st.write("단위가 다른 지표(원, 포인트, %)를 동일한 저울에서 비교하기 위해 평균 0, 표준편차 1인 점수로 변환합니다.")
+    st.write("단위가 다른 지표를 동일한 저울에서 비교하기 위해 평균 0, 표준편차 1인 점수로 변환합니다.")
     st.latex(r"Z = \frac{x - \mu}{\sigma}")
     st.subheader("3. 데이터 업데이트 및 예측 주기")
     st.write("""
@@ -142,7 +142,7 @@ try:
 
     sem_w = calculate_ml_lagged_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
-    # 5. 사이드바 - 복귀 및 슬라이더
+    # 5. 사이드바
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     if 'slider_m' not in st.session_state: st.session_state.slider_m = float(round(sem_w[0], 2))
     if 'slider_g' not in st.session_state: st.session_state.slider_g = float(round(sem_w[1], 2))
@@ -165,10 +165,9 @@ try:
     st.sidebar.subheader("📋 가중치 산출 근거 (시차 최적화 분석)")
     st.sidebar.write("""
     본 대시보드의 초기 가중치는 **'시차 상관관계(Lagged Correlation)'** 및 **'특성 기여도(Feature Importance)'** 알고리즘을 통해 산출되었습니다.
-    
-    1. **시차 최적화**: 각 매크로 지표가 KOSPI에 영향을 주기까지의 과거 지연 시간(Lag)을 계산하여 가장 설명력이 높은 시점의 데이터를 추출합니다.
-    2. **기여도 분석**: 머신러닝의 변수 중요도 산출 방식을 차용하여, KOSPI 수익률 변동에 대한 각 지표의 통계적 영향력을 계산합니다.
-    3. **동적 가중치**: 최근 1년간의 데이터 흐름을 기반으로, 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
+    1. **시차 최적화**: 각 매크로 지표가 KOSPI에 영향을 주기까지의 과거 지연 시간(Lag)을 계산합니다.
+    2. **기여도 분석**: 머신러닝의 변수 중요도 산출 방식을 통해 통계적 영향력을 계산합니다.
+    3. **동적 가중치**: 현재 시장 하락을 가장 잘 예측하는 지표에 더 높은 가중치가 자동으로 할당됩니다.
     """)
 
     total_w = w_macro + w_tech + w_global + w_fear
@@ -206,9 +205,6 @@ try:
     # 7. 백테스팅 섹션
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
-    st.info("""
-    **백테스팅(Backtesting)**: 수리적으로 최적화된 시차 데이터를 기반으로 모델의 유효성을 검증합니다. 위험 지수가 선행하여 상승했는지 확인하십시오.
-    """)
     dates = ks_s.index[-252:]
     hist_risks = []
     for d in dates:
@@ -236,28 +232,26 @@ try:
         - **0.0 이상**: 모델 왜곡 가능성
         """)
 
-    # 7.5 블랙스완 과거 사례 비교 (유지)
+    # 7.5 블랙스완 비교 (복원)
     st.markdown("---")
-    st.subheader(" Swan 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
+    st.subheader("🦢 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
     col_bs1, col_bs2 = st.columns(2)
     with col_bs1:
         st.info("**2008 금융위기 vs 현재** (리먼 사태 전후 120일)")
         bs_2008_ks = yf.download("^KS11", start="2008-05-01", end="2009-01-01")['Close']
         bs_2008_norm = (bs_2008_ks - bs_2008_ks.mean()) / bs_2008_ks.std()
         fig_bs1 = go.Figure()
-        fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-60:].values, name="현재 위험 지수(최근 60일)", line=dict(color='red', width=3)))
+        fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-60:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
         fig_bs1.add_trace(go.Scatter(y=(bs_2008_norm.values + 2) * 20, name="2008년 위기 궤적", line=dict(color='black', dash='dot')))
-        fig_bs1.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10))
-        st.plotly_chart(fig_bs1, use_container_width=True)
+        fig_bs1.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10)); st.plotly_chart(fig_bs1, use_container_width=True)
     with col_bs2:
         st.info("**2020 코로나 폭락 vs 현재** (팬데믹 전후 120일)")
         bs_2020_ks = yf.download("^KS11", start="2020-01-01", end="2020-06-01")['Close']
         bs_2020_norm = (bs_2020_ks - bs_2020_ks.mean()) / bs_2020_ks.std()
         fig_bs2 = go.Figure()
-        fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-60:].values, name="현재 위험 지수(최근 60일)", line=dict(color='red', width=3)))
+        fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-60:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
         fig_bs2.add_trace(go.Scatter(y=(bs_2020_norm.values + 2) * 20, name="2020년 위기 궤적", line=dict(color='blue', dash='dot')))
-        fig_bs2.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10))
-        st.plotly_chart(fig_bs2, use_container_width=True)
+        fig_bs2.update_layout(height=300, margin=dict(l=10, r=10, t=30, b=10)); st.plotly_chart(fig_bs2, use_container_width=True)
 
     # 8. 뉴스 및 보고서
     st.markdown("---")
@@ -278,56 +272,60 @@ try:
             st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
         except: st.write("보고서를 불러올 수 없습니다.")
 
-    # 9. 지표별 상세 분석 (설명/Guide 문구 전면 복원)
+    # 9. 지표별 상세 분석 (가로선 위쪽 안내 텍스트 완벽 복원)
     st.markdown("---")
     st.subheader("🔍 실물 경제 및 주요 상관관계 지표 분석")
     def create_chart(series, title, threshold, desc_text):
         fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title))
         fig.add_hline(y=threshold, line_width=2, line_color="red")
+        # [복원] 빨간 가로선 위쪽 안내 텍스트 추가
+        fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
         fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue")
         fig.update_layout(title=title, height=300, margin=dict(l=10, r=10, t=40, b=10))
         return fig
 
     r1_c1, r1_c2, r1_c3 = st.columns(3)
     with r1_c1:
-        st.plotly_chart(create_chart(sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, ""), use_container_width=True)
+        st.plotly_chart(create_chart(sp_s, "미국 S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
         st.info("**미국 지수**: KOSPI와 가장 강한 정(+)의 상관성을 보입니다.")
     with r1_c2:
         fx_th = float(fx_s.last('365D').mean() * 1.02)
-        st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, ""), use_container_width=True)
+        st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
         st.info(f"**환율**: 최근 1년 평균 대비 +2%({fx_th:.1f}원) 상회 시 외국인 자본 유출 압력이 심화됩니다.")
     with r1_c3:
-        st.plotly_chart(create_chart(cp_s, "실물 경기 지표 (Copper)", cp_s.last('365D').mean()*0.9, ""), use_container_width=True)
+        st.plotly_chart(create_chart(cp_s, "실물 경기 지표 (Copper)", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
         st.info("**실물 경기**: 구리 가격 하락은 글로벌 수요 둔화의 선행 신호입니다.")
 
     r2_c1, r2_c2, r2_c3 = st.columns(3)
     with r2_c1:
-        st.plotly_chart(create_chart(yield_curve, "장단기 금리차", 0.0, ""), use_container_width=True)
+        st.plotly_chart(create_chart(yield_curve, "장단기 금리차", 0.0, "0 이하 역전 시 위험"), use_container_width=True)
         st.info("**금리차**: 10년물-2년물 금리 역전은 통상 경기 침체의 강력한 전조 신호입니다.")
     with r2_c2:
         ks_recent = ks_s.last('30D')
         fig_ks = go.Figure()
         fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가"))
         fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(dash='dot')))
+        # KOSPI 전용 안내 텍스트
+        fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
         fig_ks.update_layout(title="KOSPI 최근 1개월 집중 분석", height=300); st.plotly_chart(fig_ks, use_container_width=True)
         st.info("**기술적 분석**: 주가가 20일 이동평균선을 하회할 경우 단기 추세 하락 전환 가능성이 높습니다.")
     with r2_c3:
-        st.plotly_chart(create_chart(vx_s, "VIX 공포 지수", 30, ""), use_container_width=True)
+        st.plotly_chart(create_chart(vx_s, "VIX 공포 지수", 30, "30 돌파 시 패닉"), use_container_width=True)
         st.info("**VIX 지수**: 지수 급등은 투자 심리 악화와 투매 가능성을 시사합니다.")
 
     st.markdown("---")
     r3_c1, r3_c2, r3_c3 = st.columns(3)
     with r3_c1:
         fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
-        st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_th, ""), use_container_width=True)
+        st.plotly_chart(create_chart(fr_s, "글로벌 물동량 지표 (BDRY)", fr_th, "물동량 급감 시 위험"), use_container_width=True)
         st.info(f"**물동량**: 지지선({fr_th}) 하향 돌파 시 글로벌 경기 수축 신호로 간주합니다.")
     with r3_c2:
         wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
-        st.plotly_chart(create_chart(wt_s, "에너지 가격 (WTI 원유)", wt_th, ""), use_container_width=True)
+        st.plotly_chart(create_chart(wt_s, "에너지 가격 (WTI 원유)", wt_th, "비용 압력 증가"), use_container_width=True)
         st.info(f"**유가**: 유가 급등은 생산 비용 상승과 인플레이션 압박으로 이어져 시장에 부담을 줍니다.")
     with r3_c3:
         dx_th = round(float(dx_s.last('365D').mean() * 1.03), 2)
-        st.plotly_chart(create_chart(dx_s, "달러 인덱스 (DXY)", dx_th, ""), use_container_width=True)
+        st.plotly_chart(create_chart(dx_s, "달러 인덱스 (DXY)", dx_th, "유동성 위축 위험"), use_container_width=True)
         st.info(f"**달러 가치**: 달러 인덱스 상승은 글로벌 유동성 축소 및 위험자산 회피 신호로 작용합니다.")
 
     # 10. 표준화 비교 분석
@@ -342,7 +340,7 @@ try:
     st.plotly_chart(fig_norm, use_container_width=True)
     st.info("**분석 가이드**: 두 지표의 단위를 통일(Z-Score)하여 변동의 궤적을 겹쳐 보았습니다. 물동량이 주가지수보다 선행하거나 동행하는 구간을 통해 경기 흐름을 예측할 수 있습니다.")
 
-    # 11. 섹터별 순환매 분석 (유지)
+    # 11. 섹터별 순환매 분석 (복원)
     st.markdown("---")
     st.subheader("🌡️ 섹터별 자금 흐름 분석 (KOSPI 주요 섹터)")
     sector_perf = []
