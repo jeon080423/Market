@@ -299,8 +299,7 @@ try:
             
         # 표 내용 및 스타일
         st.markdown(f"""
-        지수 구간별 상세 대응 전략은 다음과 같습니다.
-
+        
         | 점수 | 상태 | 권장 대응 (Action Plan) |
         | :--- | :--- | :--- |
         | **0-40** | **Safe** | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
@@ -541,3 +540,4 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {datetime.now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
+
