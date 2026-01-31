@@ -7,6 +7,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
+import json
 
 # 1. 페이지 설정
 st.set_page_config(page_title="주식 시장 하락 전조 신호 모니터링", layout="wide")
@@ -28,9 +29,11 @@ COVID_EVENT_DATE = "2020-02-19"
 ADMIN_ID = "jeon080423"
 ADMIN_PW = "3033"
 
-# 구글 시트 설정 (CSV 출력 경로 활용)
+# 구글 시트 설정
 SHEET_ID = "1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU"
 GSHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+# 상단 가이드에 따라 생성한 Apps Script 웹 앱 URL을 여기에 입력하세요.
+GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxuYuDmHYaYniYGuCklq7-_nUq4axPwkNnzYI1UGiSPGaZ-7yix65P4J0cGiAPyaj3j/exec" 
 
 # 3. 제목 및 설명
 st.title("KOSPI 위험 모니터링 (KOSPI Market Risk Index)")
@@ -56,7 +59,7 @@ with st.expander("📖 대시보드 사용 가이드"):
     st.markdown("#### **① 선행성 분석 범위 (Lag Optimization)**")
     st.write("""
     * **단기 선행성 (1~5일)**: 현재 모델의 `find_best_lag` 함수는 각 지표와 KOSPI 간의 상관계수가 가장 높게 나타나는 지연 시간을 0일에서 5일 사이에서 찾습니다. 이는 매크로 지표의 변화가 국내 증시에 즉각적 혹은 수일 내에 반영되는 단기적 '전조 신호'를 포착하는 데 최적화되어 있습니다.
-    * **중장기 선행성 (1~3개월)**: '장단기 금리차'와 같은 특정 지표는 수개월 이상의 시차를 두고 실물 경기에 영향을 주지만, 본 대시보드는 주식 시장의 단기 하락 위험 모니터링에 초점을 맞추고 있어 모델 내부적으로는 최근의 변동 기여도를 우선시합니다.
+    * **중장기 선행성 (1~3개월)**: '장단기 금리차'와 같은 특정 지표는 수개월 이상의 시차를 두고 실물 경기에 영향을 주지만, 본 대시보드는 주식 시장의 단기 하락 위험 모니터링에 초층을 맞추고 있어 모델 내부적으로는 최근의 변동 기여도를 우선시합니다.
     """)
     
     st.markdown("#### **② 지표별 특성에 따른 선행 효과**")
@@ -119,16 +122,28 @@ def get_market_news():
         return news_items
     except: return []
 
-# 4.6 게시판 데이터 로드/저장 로직 (구리 시트 연동)
+# 4.6 게시판 데이터 로드/저장 로직
 def load_board_data():
     try:
-        df = pd.read_csv(GSHEET_CSV_URL)
+        # 캐싱 방지를 위한 파라미터 추가
+        df = pd.read_csv(f"{GSHEET_CSV_URL}&cache_bust={datetime.now().timestamp()}")
+        # 컬럼명 대소문자 통일 (date, Author, Content, Password)
         return df.to_dict('records')
     except:
         return []
 
-if 'board_data' not in st.session_state:
-    st.session_state.board_data = load_board_data()
+def save_to_gsheet(date, author, content, password):
+    try:
+        payload = {
+            "date": date,
+            "author": author,
+            "content": content,
+            "password": password
+        }
+        res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload))
+        return res.status_code == 200
+    except:
+        return False
 
 try:
     with st.spinner('시차 상관관계 및 ML 가중치 분석 중...'):
@@ -278,7 +293,7 @@ try:
             </style>
             """, unsafe_allow_html=True)
 
-        # 게시판 데이터 연동 (구글 시트에서 최신 데이터 로드)
+        # 게시판 최신 데이터 불러오기
         st.session_state.board_data = load_board_data()
         
         # 페이지네이션 설정
@@ -289,35 +304,24 @@ try:
         if 'current_page' not in st.session_state:
             st.session_state.current_page = 1
             
-        # 게시글 목록 표시 (위로 올림)
+        # 게시글 목록 표시 (최신순 정렬 후 표시)
         board_container = st.container(height=350)
         with board_container:
             if not st.session_state.board_data:
                 st.write("등록된 의견이 없습니다.")
             else:
+                # 데이터를 최신순으로 반전(구글 시트는 아래로 쌓이므로)
+                reversed_data = st.session_state.board_data[::-1]
                 start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
                 end_idx = start_idx + ITEMS_PER_PAGE
-                paged_data = st.session_state.board_data[start_idx:end_idx]
+                paged_data = reversed_data[start_idx:end_idx]
                 
                 for i, post in enumerate(paged_data):
-                    actual_idx = start_idx + i
                     bc1, bc2 = st.columns([6, 1])
-                    # 간격 최소화를 위해 p 태그 스타일 적용
                     bc1.markdown(f"<p style='margin:0; padding:0;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     
                     with bc2.popover("⚙️", help="삭제"):
-                        if is_admin:
-                            st.info("관리자 권한")
-                            if st.button("삭제", key=f"del_admin_{actual_idx}"):
-                                # 실제 운영 시에는 구글 시트 API를 통해 행 삭제 로직 필요
-                                st.warning("시트에서 직접 행을 삭제해 주세요.")
-                        else:
-                            input_pw = st.text_input("비밀번호", type="password", key=f"pw_{actual_idx}")
-                            if st.button("삭제", key=f"del_{actual_idx}"):
-                                if str(input_pw) == str(post.get('Password','')):
-                                    st.warning("시트에서 직접 행을 삭제해 주세요.")
-                                else:
-                                    st.error("불일치")
+                        st.warning("시트에서 직접 행을 삭제해 주세요.")
         
         # 페이지 조절 단추
         if total_pages > 1:
@@ -348,10 +352,13 @@ try:
                 elif not u_content:
                     st.error("내용 입력")
                 else:
-                    # 구글 설문지(Forms) 방식이나 Apps Script를 통한 데이터 전송 로직 필요
-                    # 여기서는 사용자 안내를 위해 시트 수동 입력을 권장하거나 
-                    # 실제 연결을 위해선 Google Sheets API 설정이 필수입니다.
-                    st.success("의견이 전송되었습니다. (시트 연동 필요)")
+                    # 구글 시트로 전송
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    if save_to_gsheet(now_str, u_name if u_name else "익명", u_content, u_pw):
+                        st.success("의견이 등록되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("시트 전송 실패. Apps Script 설정을 확인하세요.")
 
     # 7. 백테스팅
     st.markdown("---")
