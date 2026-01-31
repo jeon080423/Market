@@ -252,47 +252,50 @@ try:
 
     # 6. 메인 게이지
     st.markdown("---")
-    c_gd, c_gg = st.columns([1.6, 1])
+    # 레이아웃 변경: 게이지(1) : 가이드(1.6) -> 게이지가 왼쪽, 가이드가 오른쪽
+    c_gauge, c_guide = st.columns([1, 1.6])
 
-    with c_gd:
+    with c_guide: # 가이드 (오른쪽으로 이동)
         st.subheader("💡 지수를 더 똑똑하게 보는 법")
         
-        # 표 열 폭 조절을 위한 CSS 추가 (게이지 차트 간섭 최소화)
+        # 표 열 폭 및 텍스트 유동성을 위한 CSS 수정
+        # vw(viewport width) 단위를 사용하여 브라우저 크기에 따라 글자 크기 조정
         st.markdown("""
             <style>
             div[data-testid="stMarkdownContainer"] table {
                 width: 100% !important;
+                table-layout: auto !important;
             }
-            div[data-testid="stMarkdownContainer"] table th:nth-child(1), 
-            div[data-testid="stMarkdownContainer"] table td:nth-child(1) {
-                min-width: 100px !important;
-            }
-            div[data-testid="stMarkdownContainer"] table th:nth-child(3), 
-            div[data-testid="stMarkdownContainer"] table td:nth-child(3) {
-                min-width: 320px !important;
+            div[data-testid="stMarkdownContainer"] table th,
+            div[data-testid="stMarkdownContainer"] table td {
+                font-size: clamp(12px, 1.2vw, 18px) !important; /* 유동적 폰트 사이즈 */
+                word-wrap: break-word !important;
             }
             </style>
             """, unsafe_allow_html=True)
             
+        # '현재 상황 및 시장 심리' 열 삭제 및 표 내용 수정
         st.markdown(f"""
         지수 구간별 상세 대응 전략은 다음과 같습니다.
 
-        | 점수 | 상태 | 현재 상황 및 시장 심리 | 권장 대응 (Action Plan) |
-        | :--- | :--- | :--- | :--- |
-        | **0-40** | **Safe** | 매크로 및 심리 지표 안정. 외국인 유입 가능성 높음. | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
-        | **40-60** | **Watch** | 지표 혼조. 추세 전환의 변곡점. 변동성 확대. | **현금 비중 조절 시작.** 추가 매수는 지양하고, 수익이 난 종목은 일부 차익 실현 고려. |
-        | **60-80** | **Danger** | 주요 지표 악화. 투매 심리 확산. | **방어적 운용 및 리스크 관리.** 주식 비중을 50% 이하로 축소. 변동성이 낮은 배당주나 가치주 위주 재편. |
-        | **80-100** | **Panic** | 시장 붕괴 위험. 공포(VIX 급등),기술적 지지선 붕괴. | **최우선 리스크 관리.** 가급적 현금 비중 최대화. 신용/미수 사용 전면 금지 및 손절매 기준 엄격 적용. |
+        | 점수 | 상태 | 권장 대응 (Action Plan) |
+        | :--- | :--- | :--- |
+        | **0-40** | **Safe** | **적극적 수익 추구.** 주식 비중을 확대하고 주도주 위주의 공격적 포트폴리오 운용. |
+        | **40-60** | **Watch** | **현금 비중 조절 시작.** 추가 매수는 지양하고, 수익이 난 종목은 일부 차익 실현 고려. |
+        | **60-80** | **Danger** | **방어적 운용 및 리스크 관리.** 주식 비중을 50% 이하로 축소. 변동성이 낮은 배당주나 가치주 위주 재편. |
+        | **80-100** | **Panic** | **최우선 리스크 관리.** 가급적 현금 비중 최대화. 신용/미수 사용 전면 금지 및 손절매 기준 엄격 적용. |
         
         *※ 본 지수는 과거 데이터를 기반으로 한 통계적 수치이며, 예상치 못한 블랙스완 발생 시 즉각 대응이 어려울 수 있습니다.*
         """)
-    with c_gg:
-        # 게이지 레이아웃 최적화 (숫자 중앙 정렬)
+        
+    with c_gauge: # 게이지 (왼쪽으로 이동)
+        # 게이지 레이아웃 최적화 (숫자 중앙 정렬 및 텍스트 유동성 확보)
+        # number font size 고정값(80) 삭제 -> 자동 스케일링 유도
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number", 
             value=total_risk_index, 
-            title={'text': "종합 시장 위험 지수", 'font': {'size': 20}},
-            number={'font': {'size': 80}, 'suffix': ""},
+            title={'text': "주식 시장 위험 지수", 'font': {'size': 20}},
+            number={'suffix': ""}, # 텍스트 크기 자동 조절을 위해 고정 size 삭제
             gauge={
                 'axis': {'range': [0, 100]}, 
                 'bar': {'color': "black"},
@@ -303,7 +306,7 @@ try:
                     {'range': [80, 100], 'color': "red"}
                 ]}))
         
-        # 여백(margin)을 auto로 설정하여 중앙 배치 유도
+        # 여백(margin)을 auto로 설정하여 중앙 배치 유도 및 반응형 처리
         fig_gauge.update_layout(
             margin=dict(l=40, r=40, t=80, b=40),
             height=350,
@@ -322,206 +325,4 @@ try:
         
         st.markdown("""
             <style>
-            .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; }
-            .element-container { margin-bottom: -1px !important; padding: 0px !important; }
-            div[data-testid="stVerticalBlock"] > div { padding: 0px !important; margin: 0px !important; }
-            button[data-testid="baseButton-secondary"] { 
-                padding: 0px !important; height: 18px !important; min-height: 18px !important; line-height: 1 !important; border: none !important; background: transparent !important; color: #555 !important; font-size: 12px !important;
-            }
-            hr { margin-top: 5px !important; margin-bottom: 5px !important; }
-            </style>
-            """, unsafe_allow_html=True)
-
-        st.session_state.board_data = load_board_data()
-        
-        ITEMS_PER_PAGE = 20
-        total_posts = len(st.session_state.board_data)
-        total_pages = max(1, (total_posts - 1) // ITEMS_PER_PAGE + 1)
-        if 'current_page' not in st.session_state: st.session_state.current_page = 1
-            
-        board_container = st.container(height=320) 
-        with board_container:
-            if not st.session_state.board_data:
-                st.write("의견이 없습니다.")
-            else:
-                reversed_data = st.session_state.board_data[::-1]
-                start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
-                paged_data = reversed_data[start_idx : start_idx + ITEMS_PER_PAGE]
-                
-                for i, post in enumerate(paged_data):
-                    unique_id = f"post_{start_idx + i}"
-                    bc1, bc2 = st.columns([12, 1.5]) 
-                    bc1.markdown(f"<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
-                    
-                    with bc2.popover("편집", help="수정/삭제"):
-                        chk_pw = st.text_input("비밀번호", type="password", key=f"chk_{unique_id}")
-                        stored_pw = str(post.get('Password', '')).strip()
-                        
-                        if chk_pw and chk_pw.strip() == stored_pw:
-                            new_val = st.text_input("수정 내용", value=post.get('Content',''), key=f"edit_{unique_id}")
-                            btn1, btn2 = st.columns(2)
-                            if btn1.button("수정 완료", key=f"up_{unique_id}"):
-                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="update"):
-                                    st.success("수정 성공")
-                                    st.rerun()
-                            if btn2.button("삭제", key=f"del_{unique_id}"):
-                                if save_to_gsheet(post.get('date',''), post.get('Author',''), post.get('Content',''), stored_pw, action="delete"):
-                                    st.success("삭제 성공")
-                                    st.rerun()
-                        elif chk_pw:
-                            st.error("불일치")
-        
-        if total_pages > 1:
-            pc1, pc2, pc3 = st.columns([1, 2, 1])
-            if pc1.button("◀", disabled=st.session_state.current_page == 1):
-                st.session_state.current_page -= 1; st.rerun()
-            pc2.markdown(f"<p style='text-align:center; font-size:14px;'>{st.session_state.current_page}/{total_pages}</p>", unsafe_allow_html=True)
-            if pc3.button("▶", disabled=st.session_state.current_page == total_pages):
-                st.session_state.current_page += 1; st.rerun()
-
-        st.markdown("---")
-        with st.form("board_form", clear_on_submit=True):
-            f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3.5, 0.8])
-            u_name = f_col1.text_input("성함", value="익명", label_visibility="collapsed", placeholder="성함")
-            u_pw = f_col2.text_input("비번", type="password", label_visibility="collapsed", placeholder="비번")
-            u_content = f_col3.text_input("내용", max_chars=50, label_visibility="collapsed", placeholder="한 줄 의견 (50자)")
-            submit = f_col4.form_submit_button("등록")
-            
-            if submit:
-                bad_words = ["바보", "멍청이", "개새끼", "시발", "씨발", "병신", "미친", "지랄"]
-                if any(word in u_content for word in bad_words): st.error("금지어")
-                elif not u_pw: st.error("비번 필수")
-                elif not u_content: st.error("내용 입력")
-                else:
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    if save_to_gsheet(now_str, u_name, u_content, u_pw, action="append"):
-                        st.success("등록 성공")
-                        st.rerun()
-                    else: st.error("실패")
-
-    # 7. 백테스팅
-    st.markdown("---")
-    st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
-    st.info("과거 데이터를 사용하여 모델의 유효성을 검증합니다. 위험 지수가 선행하여 상승했는지 확인하십시오.")
-    dates = ks_s.index[-252:]
-    hist_risks = []
-    for d in dates:
-        m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
-        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
-    hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
-    correlation = hist_df['Risk'].corr(hist_df['KOSPI'])
-    cb1, cb2 = st.columns([3, 1])
-    with cb1:
-        fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red')))
-        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot')))
-        fig_bt.update_layout(yaxis=dict(title="위험 지수", range=[0, 100]), yaxis2=dict(overlaying="y", side="right"), height=400); st.plotly_chart(fig_bt, use_container_width=True)
-    with cb2:
-        st.metric("상관계수 (Corr)", f"{correlation:.2f}")
-        st.write("- -1.0~-0.7: 우수\n- -0.7~-0.3: 유의미\n- 0.0이상: 모델 왜곡")
-
-    # 7.5 블랙스완
-    st.markdown("---")
-    st.subheader("🦢 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
-    def get_norm_risk_proxy(t, s, e):
-        d = yf.download(t, start=s, end=e)['Close']
-        if isinstance(d, pd.DataFrame): d = d.iloc[:, 0]
-        return 100 - ((d - d.min()) / (d.max() - d.min()) * 100)
-    col_bs1, col_bs2 = st.columns(2)
-    with col_bs1:
-        st.info("**2008 금융위기 vs 현재**"); bs_2008 = get_norm_risk_proxy("^KS11", "2008-01-01", "2009-01-01")
-        fig_bs1 = go.Figure(); fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs1.add_trace(go.Scatter(y=bs_2008.values, name="2008년 위기 궤적", line=dict(color='black', dash='dot'))); st.plotly_chart(fig_bs1, use_container_width=True)
-    with col_bs2:
-        st.info("**2020 코로나 폭락 vs 현재**"); bs_2020 = get_norm_risk_proxy("^KS11", "2020-01-01", "2020-06-01")
-        fig_bs2 = go.Figure(); fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs2.add_trace(go.Scatter(y=bs_2020.values, name="2020년 위기 궤적", line=dict(color='blue', dash='dot'))); st.plotly_chart(fig_bs2, use_container_width=True)
-
-    # 9. 지표별 상세 분석
-    st.markdown("---")
-    st.subheader("🔍 실물 경제 및 주요 상관관계 지표 분석")
-    def create_chart(series, title, threshold, desc_text):
-        fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title))
-        fig.add_hline(y=threshold, line_width=2, line_color="red")
-        fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
-        fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue"); return fig
-
-    r1_c1, r1_c2, r1_c3 = st.columns(3)
-    with r1_c1:
-        st.subheader("미국 S&P 500")
-        st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
-        st.info("**미국 지수**: KOSPI와 강한 정(+)의 상관성")
-    with r1_c2:
-        st.subheader("원/달러 환율")
-        fx_th = float(fx_s.last('365D').mean() * 1.02)
-        st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
-        st.info("**환율**: +2% 상회 시 외국인 자본 유출 심화")
-    with r1_c3:
-        st.subheader("실물 경기 지표 (Copper)")
-        st.plotly_chart(create_chart(cp_s, "Copper", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
-        st.info("**실물 경기**: 구리 가격 하락은 수요 둔화 선행 신호")
-
-    r2_c1, r2_c2, r2_c3 = st.columns(3)
-    with r2_c1:
-        st.subheader("장단기 금리차")
-        st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, "0 이하 역전 시 위험"), use_container_width=True)
-        st.info("**금리차**: 금리 역전은 경기 침체 강력 전조")
-    with r2_c2:
-        st.subheader("KOSPI 기술적 분석")
-        ks_recent = ks_s.last('30D'); fig_ks = go.Figure(); fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가"))
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(dash='dot')))
-        fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
-        st.plotly_chart(fig_ks, use_container_width=True); st.info("**기술적 분석**: 20일선 하회 시 단기 추세 하락")
-    with r2_c3:
-        st.subheader("VIX 공포 지수")
-        st.plotly_chart(create_chart(vx_s, "VIX", 30, "30 돌파 시 패닉"), use_container_width=True)
-        st.info("**VIX 지수**: 지수 급등은 투매 가능성 시사")
-
-    st.markdown("---")
-    r3_c1, r3_c2, r3_c3 = st.columns(3)
-    with r3_c1:
-        st.subheader("글로벌 물동량 지표 (BDRY)")
-        fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
-        st.plotly_chart(create_chart(fr_s, "BDRY", fr_th, "물동량 급감 시 위험"), use_container_width=True)
-        st.info("**물동량**: 지지선 하향 돌파 시 경기 수축 신호")
-    with r3_c2:
-        st.subheader("에너지 가격 (WTI 원유)")
-        wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
-        st.plotly_chart(create_chart(wt_s, "WTI", wt_th, "비용 압력 증가"), use_container_width=True)
-        st.info("**유가**: 급등 시 생산 비용 상승 및 인플레 압박")
-    with r3_c3:
-        st.subheader("달러 인덱스 (DXY)")
-        dx_th = round(float(dx_s.last('365D').mean() * 1.03), 1)
-        st.plotly_chart(create_chart(dx_s, "DXY", dx_th, "유동성 위축 위험"), use_container_width=True)
-        st.info("**달러 가치**: 달러 상승은 유동성 축소 및 위험자산 회피")
-
-    # 10. 표준화 비교 및 섹터 히트맵
-    st.markdown("---")
-    st.subheader("📊 지수간 동조화 및 섹터 분석")
-    sp_norm = (sp_s - sp_s.mean()) / sp_s.std(); fr_norm = (fr_s - fr_s.mean()) / fr_s.std()
-    fig_norm = go.Figure(); fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Std)", line=dict(color='blue')))
-    fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="BDRY (Std)", line=dict(color='orange')))
-    fig_norm.update_layout(title="Z-Score 동조화 추세"); st.plotly_chart(fig_norm, use_container_width=True)
-    st.info("두 지표의 단위를 통일하여 변동 궤적을 비교합니다. 물동량이 주가지수보다 선행/동행하는지 확인하세요.")
-
-    sector_perf = []
-    for n, t in sector_map.items():
-        try:
-            cur = sector_raw[t].iloc[-1]; pre = sector_raw[t].iloc[-2]
-            sector_perf.append({"섹터": n, "등락률": round(((cur - pre) / pre) * 100, 2)})
-        except: pass
-    if sector_perf:
-        df_p = pd.DataFrame(sector_perf)
-        fig_h = px.bar(df_p, x="섹터", y="등락률", color="등락률", color_continuous_scale='RdBu_r', text="등락률", title="금일 섹터별 대표 종목 등락 현황 (%)")
-        st.plotly_chart(fig_h, use_container_width=True); st.info("종합 위험 지수가 상승할 때 방어 섹터와 민감 섹터의 등락을 비교하세요.")
-
-except Exception as e:
-    st.error(f"오류 발생: {str(e)}")
-
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
-
-
-
-
-
-
+            .stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important;
