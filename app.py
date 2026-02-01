@@ -515,32 +515,32 @@ try:
     with r1_c1:
         st.subheader("미국 S&P 500")
         st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.last('365D').mean()*0.9, "평균 대비 -10% 하락 시"), use_container_width=True)
-        st.info("**미국 지수**: KOSPI와 강한 정(+)의 상관성")
+        st.info("**미국 지수**: KOSPI와 강한 정(+)의 상관성  \n**빨간선 기준**: 최근 1년 평균 가격 대비 -10% 하락 지점")
     with r1_c2:
         st.subheader("원/달러 환율")
         fx_th = float(fx_s.last('365D').mean() * 1.02)
         st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, f"{fx_th:.1f}원 돌파 시 위험"), use_container_width=True)
-        st.info("**환율**: +2% 상회 시 외국인 자본 유출 심화")
+        st.info("**환율**: +2% 상회 시 외국인 자본 유출 심화  \n**빨간선 기준**: 최근 1년 평균 환율 대비 +2% 상승 지점")
     with r1_c3:
         st.subheader("실물 경기 지표 (Copper)")
         st.plotly_chart(create_chart(cp_s, "Copper", cp_s.last('365D').mean()*0.9, "수요 위축 시 위험"), use_container_width=True)
-        st.info("**실물 경기**: 구리 가격 하락은 수요 둔화 선행 신호")
+        st.info("**실물 경기**: 구리 가격 하락은 수요 둔화 선행 신호  \n**빨간선 기준**: 최근 1년 평균 가격 대비 -10% 하락 지점")
 
     r2_c1, r2_c2, r2_c3 = st.columns(3)
     with r2_c1:
         st.subheader("장단기 금리차")
         st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, "0 이하 역전 시 위험"), use_container_width=True)
-        st.info("**금리차**: 금리 역전은 경기 침체 강력 전조")
+        st.info("**금리차**: 금리 역전은 경기 침체 강력 전조  \n**빨간선 기준**: 금리차가 0(수평)이 되는 역전 한계 지점")
     with r2_c2:
         st.subheader("KOSPI 기술적 분석")
         ks_recent = ks_s.last('30D'); fig_ks = go.Figure(); fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가"))
         fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(dash='dot')))
-        fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
+        fig_ks.add_annotation(x=ks_recent.index[-1], y=ma20.iloc[-1], text="20일 평균선 하회 시 위험", showarrow=True, font=dict(color="red"))
         st.plotly_chart(fig_ks, use_container_width=True); st.info("**기술적 분석**: 20일선 하회 시 단기 추세 하락")
     with r2_c3:
         st.subheader("VIX 공포 지수")
         st.plotly_chart(create_chart(vx_s, "VIX", 30, "30 돌파 시 패닉"), use_container_width=True)
-        st.info("**VIX 지수**: 지수 급등은 투매 가능성 시사")
+        st.info("**VIX 지수**: 지수 급등은 투매 가능성 시사  \n**빨간선 기준**: 시장의 극단적 공포를 상징하는 지수 30 지점")
 
     st.markdown("---")
     r3_c1, r3_c2, r3_c3 = st.columns(3)
@@ -548,17 +548,17 @@ try:
         st.subheader("글로벌 물동량 지표 (BDRY)")
         fr_th = round(float(fr_s.last('365D').mean() * 0.85), 2)
         st.plotly_chart(create_chart(fr_s, "BDRY", fr_th, "물동량 급감 시 위험"), use_container_width=True)
-        st.info("**물동량**: 지지선 하향 돌파 시 경기 수축 신호")
+        st.info("**물동량**: 지지선 하향 돌파 시 경기 수축 신호  \n**빨간선 기준**: 최근 1년 평균 대비 -15% 하락 지점")
     with r3_c2:
         st.subheader("에너지 가격 (WTI 원유)")
         wt_th = round(float(wt_s.last('365D').mean() * 1.2), 2)
         st.plotly_chart(create_chart(wt_s, "WTI", wt_th, "비용 압력 증가"), use_container_width=True)
-        st.info("**유가**: 급등 시 생산 비용 상승 및 인플레 압박")
+        st.info("**유가**: 급등 시 생산 비용 상승 및 인플레 압박  \n**빨간선 기준**: 최근 1년 평균 대비 +20% 급등 지점")
     with r3_c3:
         st.subheader("달러 인덱스 (DXY)")
         dx_th = round(float(dx_s.last('365D').mean() * 1.03), 1)
         st.plotly_chart(create_chart(dx_s, "DXY", dx_th, "유동성 위축 위험"), use_container_width=True)
-        st.info("**달러 가치**: 달러 상승은 유동성 축소 및 위험자산 회피")
+        st.info("**달러 가치**: 달러 상승은 유동성 축소 및 위험자산 회피  \n**빨간선 기준**: 최근 1년 평균 대비 +3% 강세 지점")
 
     # 10. 표준화 비교 및 섹터 히트맵
     st.markdown("---")
@@ -567,7 +567,12 @@ try:
     fig_norm = go.Figure(); fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Std)", line=dict(color='blue')))
     fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="BDRY (Std)", line=dict(color='orange')))
     fig_norm.update_layout(title="Z-Score 동조화 추세"); st.plotly_chart(fig_norm, use_container_width=True)
-    st.info("두 지표의 단위를 통일하여 변동 궤적을 비교합니다. 물동량이 주가지수보다 선행/동행하는지 확인하세요.")
+    st.info("""
+**[현재 상황 상세 해석 가이드]**
+* **주가지수(Blue)가 위에 있을 때**: 실물 경기(물동량) 뒷받침 없이 기대감만으로 지수가 과열된 상태일 수 있습니다. 물동량이 따라오지 못하면 지수가 회귀(하락)할 가능성이 높습니다.
+* **지표들이 비슷한 위치일 때**: 주가와 실물 경기가 적정 수준에서 동조화되어 움직이는 안정적인 추세입니다. 급격한 방향 전환 가능성이 낮은 구간입니다.
+* **글로벌 물동량(Orange)이 위에 있을 때**: 실물 경기는 회복/활성화되었으나 주가가 아직 저평가되었거나 선행 지표가 상방을 가리키는 긍정적 신호입니다. 향후 주가의 우상향 가능성을 시사합니다.
+""")
 
     sector_perf = []
     for n, t in sector_map.items():
