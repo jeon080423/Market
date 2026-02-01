@@ -32,7 +32,7 @@ except KeyError:
 # Gemini 설정 및 모델 초기화
 try:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 except Exception as e:
     st.error(f"Gemini 설정 중 오류 발생: {e}")
 
@@ -604,3 +604,4 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Gemini AI 분석 엔진 가동 중")
+
