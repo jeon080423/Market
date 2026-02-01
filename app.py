@@ -338,7 +338,6 @@ try:
         
         # 표 형식에서 일반 텍스트로 변경 및 줄바꿈/시인성 강화
         st.markdown(f"""
-        <div class="guide-text">
         0-40 (Safe): 적극적 수익 추구. 주식 비중을 확대하고, 주도주 위주의 공격적 포트폴리오 운용.  
         <br>
         40-60 (Watch): 현금 비중 조절 시작. 추가 매수는 지양하고, 수익이 난 종목은 일부 차익 실현 고려.  
@@ -585,5 +584,6 @@ except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 시차 최적화 및 ML 기여도 분석 엔진 가동 중")
+
 
 
