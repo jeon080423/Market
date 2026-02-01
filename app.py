@@ -21,9 +21,9 @@ try:
 except ImportError:
     pass
 
-# 2. Secrets에서 API Key 및 설정값 불러오기
+# 2. Secrets에서 API Key 및 설정값 불러오기 (이미지상의 secrets.toml 구조 반영)
 try:
-    # 사용자님의 secrets.toml 구조([gemini], [news_api], [auth])에 맞춰 수정
+    # 사용자님의 secrets.toml 구조 [gemini], [news_api], [auth]에 맞춰 수정
     GEMINI_API_KEY = st.secrets["gemini"]["api_key"]
     NEWS_API_KEY = st.secrets["news_api"]["api_key"]
     ADMIN_ID = st.secrets["auth"]["admin_id"]
@@ -164,7 +164,7 @@ try:
         min_v, max_v = sub.min(), sub.max(); curr_v = series.loc[current_idx]
         return ((max_v - curr_v) / (max_v - min_v)) * 100 if inverse else ((curr_v - min_v) / (max_v - min_v)) * 100
 
-    # 5. 사이드바 - 가중치 설정 (st.secrets의 관리자 정보 사용)
+    # 5. 사이드바 - 가중치 설정 (st.secrets의 관리자 정보 기반 검증 기능 포함)
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     w_macro = st.sidebar.slider("매크로", 0.0, 1.0, 0.25, step=0.01)
     w_global = st.sidebar.slider("글로벌", 0.0, 1.0, 0.25, step=0.01)
@@ -175,12 +175,14 @@ try:
     st.sidebar.subheader("🔒 관리자 모드")
     admin_id_input = st.sidebar.text_input("아이디")
     admin_pw_input = st.sidebar.text_input("비밀번호", type="password")
+    
+    # Secrets 명칭(admin_id, admin_pw)과 일치하도록 수정
     is_admin = (admin_id_input == ADMIN_ID and admin_pw_input == ADMIN_PW)
     
     total_w = w_macro + w_tech + w_global + w_fear
     if total_w == 0: st.stop()
 
-    # 현재 지수 산출
+    # 현재 지수 산출 (원본 공식 유지)
     total_risk_index = (get_hist_score_val(fx_s, ks_s.index[-1]) * w_macro + get_hist_score_val(vx_s, ks_s.index[-1]) * w_fear) / total_w
 
     c_gauge, c_guide = st.columns([1, 1.6])
@@ -221,4 +223,4 @@ try:
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Gemini AI")
+st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Gemini AI 연동 중")
