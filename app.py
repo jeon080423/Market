@@ -9,7 +9,6 @@ import requests
 from bs4 import BeautifulSoup
 import json
 from io import StringIO
-# google-generativeai 대신 groq 사용
 from groq import Groq
 
 # 1. 페이지 설정
@@ -272,7 +271,8 @@ try:
             df = df.iloc[:, 0]
         return df[~df.index.duplicated(keep='first')]
 
-    ks_s = get_clean_series(kospi)
+    # 데이터 끊김 현상 방지를 위해 ffill() 적용
+    ks_s = get_clean_series(kospi).ffill()
     sp_s = get_clean_series(sp500).reindex(ks_s.index).ffill()
     fx_s = get_clean_series(fx).reindex(ks_s.index).ffill()
     b10_s = get_clean_series(bond10).reindex(ks_s.index).ffill()
@@ -284,7 +284,7 @@ try:
     dx_s = get_clean_series(dxy_data).reindex(ks_s.index).ffill()
     
     yield_curve = b10_s - b2_s
-    ma20 = ks_s.rolling(window=20).mean()
+    ma20 = ks_s.rolling(window=20).mean() # 전체 데이터 기반 이동평균 계산
 
     def get_hist_score_val(series, current_idx, inverse=False):
         try:
@@ -493,14 +493,15 @@ try:
     dates = ks_s.index[-252:]
     hist_risks = []
     for d in dates:
+        # 데이터 끊김 현상 보정을 위해 ffill된 데이터 사용
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
         hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
     hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
     cb1, cb2 = st.columns([3, 1])
     with cb1:
         fig_bt = go.Figure()
-        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red')))
-        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot')))
+        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red'), connectgaps=True)) # connectgaps 추가
+        fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot'), connectgaps=True))
         fig_bt.update_layout(yaxis=dict(title="위험 지수", range=[0, 100]), yaxis2=dict(overlaying="y", side="right"), height=400); st.plotly_chart(fig_bt, use_container_width=True)
     with cb2:
         st.metric("상관계수 (Corr)", f"{hist_df['Risk'].corr(hist_df['KOSPI']):.2f}")
@@ -510,7 +511,7 @@ try:
     st.markdown("---")
     st.subheader("🦢 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
     def get_norm_risk_proxy(t, s, e):
-        d = yf.download(t, start=s, end=e)['Close']
+        d = yf.download(t, start=s, end=e)['Close'].ffill() # ffill 추가
         if isinstance(d, pd.DataFrame): d = d.iloc[:, 0]
         return 100 - ((d - d.min()) / (d.max() - d.min()) * 100)
     col_bs1, col_bs2 = st.columns(2)
@@ -519,8 +520,8 @@ try:
         st.info("**2008 금융위기 vs 현재**")
         bs_2008 = get_norm_risk_proxy("^KS11", "2008-01-01", "2009-01-01")
         fig_bs1 = go.Figure()
-        fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs1.add_trace(go.Scatter(y=bs_2008.values, name="2008년 위기 궤적", line=dict(color='black', dash='dot')))
+        fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3), connectgaps=True))
+        fig_bs1.add_trace(go.Scatter(y=bs_2008.values, name="2008년 위기 궤적", line=dict(color='black', dash='dot'), connectgaps=True))
         st.plotly_chart(fig_bs1, use_container_width=True)
         if avg_current_risk > 60: st.warning(f"⚠️ 현재 위험 지수(평균 {avg_current_risk:.1f})가 위기 초기와 유사합니다.")
         else: st.success(f"✅ 현재 위험 지수(평균 {avg_current_risk:.1f})는 금융위기 경로와 거리가 있습니다.")
@@ -528,8 +529,8 @@ try:
         st.info("**2020 코로나 폭락 vs 현재**")
         bs_2020 = get_norm_risk_proxy("^KS11", "2020-01-01", "2020-06-01")
         fig_bs2 = go.Figure()
-        fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs2.add_trace(go.Scatter(y=bs_2020.values, name="2020년 위기 궤적", line=dict(color='blue', dash='dot')))
+        fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3), connectgaps=True))
+        fig_bs2.add_trace(go.Scatter(y=bs_2020.values, name="2020년 위기 궤적", line=dict(color='blue', dash='dot'), connectgaps=True))
         st.plotly_chart(fig_bs2, use_container_width=True)
         if avg_current_risk > 50: st.error(f"🚨 주의: 현재 위험 지수가 2020년 팬데믹 상승 구간과 유사한 패턴을 보입니다.")
         else: st.info(f"💡 현재 위험 지수 흐름은 2020년 패닉 궤적보다는 안정적입니다.")
@@ -557,7 +558,7 @@ try:
             st.write(get_ai_analysis(ai_desc_prompt))
 
     def create_chart(series, title, threshold, desc_text):
-        fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title))
+        fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title, connectgaps=True)) # connectgaps 추가
         fig.add_hline(y=threshold, line_width=2, line_color="red")
         fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
         fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue")
@@ -589,13 +590,13 @@ try:
         ks_recent = ks_s.last('30D')
         fig_ks = go.Figure()
         # 현재가 그래프: 선 굵기 및 마커 추가로 가독성 향상
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가", line=dict(color='royalblue', width=3), mode='lines+markers'))
-        # 20일 이동평균선: 색상을 오렌지로 변경하여 대비 강조
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(color='orange', width=2, dash='dot')))
-        # 화살표 및 주석: 위치를 데이터 끝부분에 정확히 맞추고 ay(화살표 길이) 조정
+        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가", line=dict(color='royalblue', width=3), mode='lines+markers', connectgaps=True))
+        # 20일 이동평균선: 계산된 ma20을 reindex하여 끊김 없이 시각화
+        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20.reindex(ks_recent.index).values, name="20일선", line=dict(color='orange', width=2, dash='dot'), connectgaps=True))
+        # 화살표 위치 수정: y값을 실제 20일선 지수값(ma20.iloc[-1])으로 명확히 지정
         fig_ks.add_annotation(
             x=ks_recent.index[-1], 
-            y=ma20.iloc[-1], 
+            y=ma20.iloc[-1], # 화살표가 0이 아닌 실제 지수 위치를 가리키도록 수정
             text="20일 평균선 하회 시 위험", 
             showarrow=True, 
             arrowhead=2, 
@@ -634,8 +635,8 @@ try:
     st.markdown("---")
     st.subheader("📊 지수간 동조화 및 섹터 분석")
     sp_norm = (sp_s - sp_s.mean()) / sp_s.std(); fr_norm = (fr_s - fr_s.mean()) / fr_s.std()
-    fig_norm = go.Figure(); fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Std)", line=dict(color='blue')))
-    fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="BDRY (Std)", line=dict(color='orange')))
+    fig_norm = go.Figure(); fig_norm.add_trace(go.Scatter(x=sp_norm.index, y=sp_norm.values, name="S&P 500 (Std)", line=dict(color='blue'), connectgaps=True))
+    fig_norm.add_trace(go.Scatter(x=fr_norm.index, y=fr_norm.values, name="BDRY (Std)", line=dict(color='orange'), connectgaps=True))
     fig_norm.update_layout(title="Z-Score 동조화 추세"); st.plotly_chart(fig_norm, use_container_width=True)
     st.info("""
 **[현재 상황 상세 해석 가이드]**
@@ -660,5 +661,3 @@ except Exception as e:
 
 # 하단 캡션 Groq로 수정
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Groq AI 분석 엔진 가동 중")
-
-
