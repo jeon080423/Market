@@ -482,20 +482,43 @@ try:
 
     # 7.5 블랙스완
     st.markdown("---")
-    st.subheader("🦢 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
+    st.subheader(" Swan) 과거 사례 비교 시뮬레이션")
     def get_norm_risk_proxy(t, s, e):
         d = yf.download(t, start=s, end=e)['Close']
         if isinstance(d, pd.DataFrame): d = d.iloc[:, 0]
         return 100 - ((d - d.min()) / (d.max() - d.min()) * 100)
+    
     col_bs1, col_bs2 = st.columns(2)
+    # 해석을 위한 현재 위험 지수 평균 (최근 30일)
+    avg_current_risk = np.mean(hist_df['Risk'].iloc[-30:])
+    
     with col_bs1:
-        st.info("**2008 금융위기 vs 현재**"); bs_2008 = get_norm_risk_proxy("^KS11", "2008-01-01", "2009-01-01")
-        fig_bs1 = go.Figure(); fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs1.add_trace(go.Scatter(y=bs_2008.values, name="2008년 위기 궤적", line=dict(color='black', dash='dot'))); st.plotly_chart(fig_bs1, use_container_width=True)
+        st.info("**2008 금융위기 vs 현재**")
+        bs_2008 = get_norm_risk_proxy("^KS11", "2008-01-01", "2009-01-01")
+        fig_bs1 = go.Figure()
+        fig_bs1.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
+        fig_bs1.add_trace(go.Scatter(y=bs_2008.values, name="2008년 위기 궤적", line=dict(color='black', dash='dot')))
+        st.plotly_chart(fig_bs1, use_container_width=True)
+        
+        # 2008 해석 로직
+        if avg_current_risk > 60:
+            st.warning(f"⚠️ 현재 위험 지수(평균 {avg_current_risk:.1f})가 2008년 리먼 사태 초기 수준과 유사한 압력을 보이고 있습니다. 자산 방어 기제 강화가 필요합니다.")
+        else:
+            st.success(f"✅ 현재 위험 지수(평균 {avg_current_risk:.1f})는 2008년 금융위기 당시의 파괴적 경로와는 상당한 거리가 있습니다. 시장은 상대적으로 안정적입니다.")
+
     with col_bs2:
-        st.info("**2020 코로나 폭락 vs 현재**"); bs_2020 = get_norm_risk_proxy("^KS11", "2020-01-01", "2020-06-01")
-        fig_bs2 = go.Figure(); fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
-        fig_bs2.add_trace(go.Scatter(y=bs_2020.values, name="2020년 위기 궤적", line=dict(color='blue', dash='dot'))); st.plotly_chart(fig_bs2, use_container_width=True)
+        st.info("**2020 코로나 폭락 vs 현재**")
+        bs_2020 = get_norm_risk_proxy("^KS11", "2020-01-01", "2020-06-01")
+        fig_bs2 = go.Figure()
+        fig_bs2.add_trace(go.Scatter(y=hist_df['Risk'].iloc[-120:].values, name="현재 위험 지수", line=dict(color='red', width=3)))
+        fig_bs2.add_trace(go.Scatter(y=bs_2020.values, name="2020년 위기 궤적", line=dict(color='blue', dash='dot')))
+        st.plotly_chart(fig_bs2, use_container_width=True)
+        
+        # 2020 해석 로직
+        if avg_current_risk > bs_2020.iloc[len(bs_2020)//2]: # 코로나 중반기 위험도와 비교
+            st.error(f"🚨 주의: 현재 위험 지수 변동폭이 2020년 팬데믹 폭락 직전의 수직 상승 구간과 유사한 패턴을 보입니다. 변동성 확대에 유의하십시오.")
+        else:
+            st.info(f"💡 현재 위험 지수 흐름은 2020년과 같은 급격한 V자형 패닉 궤적보다는 안정적입니다. 단기적 충격 가능성이 낮게 유지되고 있습니다.")
 
     # 9. 지표별 상세 분석
     st.markdown("---")
