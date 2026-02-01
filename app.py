@@ -422,7 +422,7 @@ try:
                 prompt = f"""
                 다음은 최근 경제 뉴스 제목들입니다: {all_titles}
                 이 뉴스들을 종합하여 현재 시장의 주요 리스크와 투자자들이 주의해야 할 점을 한국어 두 문장으로 요약해줘.
-                각 문장은 줄바꿈으로 구분해줘. 답변에 'AI 뉴스 통합 분석'이라는 말은 넣지 마. 답변은 반드시 표분 한국어 문법을 준수하여 생성해줘 
+                각 문장은 줄바꿈으로 구분해줘. 답변에 'AI 뉴스 통합 분석'이라는 말은 넣지 마. 답변은 반드시 표준 한국어 문법을 준수하여 생성해줘. 문장에 한글이 아닌 문자가 나타나지 않게 검토한후 제시해.
                 """
                 summary_text = get_ai_analysis(prompt)
                 
@@ -660,4 +660,5 @@ except Exception as e:
 
 # 하단 캡션 Groq로 수정
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Groq AI 분석 엔진 가동 중")
+
 
