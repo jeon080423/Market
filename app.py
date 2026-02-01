@@ -415,7 +415,7 @@ try:
                 for i, post in enumerate(paged_data):
                     unique_id = f"post_{start_idx + i}"
                     bc1, bc2 = st.columns([12, 1.5]) 
-                    bc1.markdown(f<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
+                    bc1.markdown(f"<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
                     with bc2.popover("편집", help="수정/삭제"):
                         chk_pw = st.text_input("비밀번호", type="password", key=f"chk_{unique_id}")
                         stored_pw = str(post.get('Password', '')).strip()
@@ -425,7 +425,7 @@ try:
                             if btn1.button("수정 완료", key=f"up_{unique_id}"):
                                 if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="update"): st.success("수정 성공"); st.rerun()
                             if btn2.button("삭제", key=f"del_{unique_id}"):
-                                if save_to_gsheet(post.get('date',''), post.get('Author',''), post.get('Content',''), stored_pw, action="delete"): st.success("삭제 성공"); st.rerun()
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="delete"): st.success("삭제 성공"); st.rerun()
                         elif chk_pw: st.error("불일치")
         if total_pages > 1:
             pc1, pc2, pc3 = st.columns([1, 2, 1])
