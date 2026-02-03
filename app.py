@@ -364,6 +364,7 @@ try:
     st.sidebar.markdown("---")
     st.sidebar.subheader("자발적 후원으로 운영됩니다.")
     st.sidebar.write("카카오뱅크 3333-23-8667708 (ㅈㅅㅎ)")
+    st.sidebar.write("유료API로 정밀한 데이터가 필요합니다.")
     
     total_w = w_macro + w_tech + w_global + w_fear
     if total_w == 0: 
@@ -700,5 +701,6 @@ except Exception as e:
 
 # 하단 캡션 Groq로 수정
 st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | NewsAPI 및 Groq AI 분석 엔진 가동 중")
+
 
 
