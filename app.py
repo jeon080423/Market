@@ -180,10 +180,9 @@ with st.expander("📖 지수 가이드북"):
         st.latex(r"Z = \frac{x - \mu}{\sigma}")
     get_math_formulas()
 
-# 4. 데이터 수집 함수 (실시간 데이터 보정을 위해 수정)
+# 4. 데이터 수집 함수 (최신 데이터 반영을 위해 종료일 및 실시간 보정 적용)
 @st.cache_data(ttl=60) 
 def load_data():
-    # 최신 데이터 누락 방지를 위해 종료일을 내일로 설정
     end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = "2019-01-01"
     
@@ -193,19 +192,14 @@ def load_data():
         "copper": "HG=F", "freight": "BDRY", "wti": "CL=F", "dxy": "DX-Y.NYB"
     }
     
-    # 1. 일봉 데이터 다운로드
-    data = yf.download(list(tickers.values()), start=start_date, end=end_date, interval='1d')['Close']
+    data = yf.download(list(tickers.values()), start=start_date, end=end_date)['Close']
     
-    # 2. 실시간성 보완 (오늘 데이터가 0으로 찍히거나 누락되는 경우 대비하여 1분 봉의 마지막 값을 종가로 취급)
+    # KOSPI 실시간 보정: 장중 데이터 누락 방지
     try:
         realtime_ks = yf.download("^KS11", period="1d", interval="1m")['Close']
         if not realtime_ks.empty:
-            today_kst = get_kst_now().date()
-            # 데이터프레임 인덱스를 날짜 형식으로 통일하여 오늘 값 덮어쓰기
-            last_price = realtime_ks.iloc[-1]
-            data.loc[pd.to_datetime(today_kst), tickers["kospi"]] = last_price
-    except:
-        pass
+            data.loc[pd.to_datetime(get_kst_now().date()), tickers["kospi"]] = realtime_ks.iloc[-1]
+    except: pass
 
     sector_tickers = {
         "반도체": "005930.KS", "자동차": "005380.KS", "2차전지": "051910.KS",
@@ -221,17 +215,11 @@ def load_data():
         data[[tickers["dxy"]]], sector_raw, sector_tickers
     )
 
-# 4.5 글로벌 경제 뉴스 수집 함수 (최적화: 캐시 연장)
-@st.cache_data(ttl=1800) # 30분으로 연장
+# 4.5 글로벌 경제 뉴스 수집 함수
+@st.cache_data(ttl=1800)
 def get_market_news():
     api_url = "https://newsapi.org/v2/everything"
-    params = {
-        "q": "stock market risk OR recession OR inflation",
-        "sortBy": "publishedAt",
-        "language": "en",
-        "pageSize": 5,
-        "apiKey": NEWS_API_KEY
-    }
+    params = {"q": "stock market risk OR recession OR inflation", "sortBy": "publishedAt", "language": "en", "pageSize": 5, "apiKey": NEWS_API_KEY}
     try:
         res = requests.get(api_url, params=params, timeout=10)
         data = res.json()
@@ -241,8 +229,7 @@ def get_market_news():
                 news_items.append({"title": article["title"], "link": article["url"]})
             return news_items
         return []
-    except:
-        return []
+    except: return []
 
 # 4.6 게시판 데이터 로드/저장 로직
 @st.cache_data(ttl=10) 
@@ -254,18 +241,11 @@ def load_board_data():
             df = pd.read_csv(StringIO(res.text), dtype=str).fillna("")
             return df.to_dict('records')
         return []
-    except:
-        return []
+    except: return []
 
 def save_to_gsheet(date, author, content, password, action="append"):
     try:
-        payload = {
-            "date": str(date),
-            "author": str(author),
-            "content": str(content),
-            "password": str(password),
-            "action": action
-        }
+        payload = {"date": str(date), "author": str(author), "content": str(content), "password": str(password), "action": action}
         res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload), timeout=15)
         if res.status_code == 200:
             st.cache_data.clear()
@@ -281,9 +261,7 @@ try:
 
     def get_clean_series(df):
         if df is None or df.empty: return pd.Series(dtype='float64')
-        if isinstance(df, pd.DataFrame):
-            df = df.iloc[:, 0]
-        # 인덱스를 타임존 없는 Datetime으로 변환하여 매칭 오류 방지
+        if isinstance(df, pd.DataFrame): df = df.iloc[:, 0]
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df[~df.index.duplicated(keep='last')]
 
@@ -324,33 +302,38 @@ try:
             s_cp = get_hist_score_val(_cp_s.shift(best_lags['CP']), d, True)
             s_vx = get_hist_score_val(_vx_s.shift(best_lags['VX']), d)
             data_rows.append([ (s_fx + s_b10 + s_cp) / 3, s_sp, s_vx, max(0, min(100, 100 - (float(_ks_s.loc[d]) / float(_ma20.loc[d]) - 0.9) * 500)), _ks_s.loc[d] ])
-        
         df_reg = pd.DataFrame(data_rows, columns=['Macro', 'Global', 'Fear', 'Tech', 'KOSPI']).replace([np.inf, -np.inf], np.nan).dropna()
         X = (df_reg.iloc[:, :4] - df_reg.iloc[:, :4].mean()) / (df_reg.iloc[:, :4].std() + 1e-6)
         Y = (df_reg['KOSPI'] - df_reg['KOSPI'].mean()) / (df_reg['KOSPI'].std() + 1e-6)
-        
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
         adjusted_importance = (np.abs(coeffs) * X.std().values) + 1e-6 
         return adjusted_importance / np.sum(adjusted_importance)
 
     sem_w = calculate_ml_lagged_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
-    # 5. 사이드바 - 가중치 설정
+    # 5. 사이드바 (복원)
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     if 'slider_m' not in st.session_state: st.session_state.slider_m = float(round(sem_w[0], 2))
     if 'slider_g' not in st.session_state: st.session_state.slider_g = float(round(sem_w[1], 2))
     if 'slider_f' not in st.session_state: st.session_state.slider_f = float(round(sem_w[2], 2))
     if 'slider_t' not in st.session_state: st.session_state.slider_t = float(round(sem_w[3], 2))
-
     if st.sidebar.button("🔄 권장 최적 가중치로 복귀"):
         st.session_state.slider_m = float(round(sem_w[0], 2)); st.session_state.slider_g = float(round(sem_w[1], 2))
-        st.session_state.slider_f = float(round(sem_w[2], 2)); st.session_state.slider_t = float(round(sem_w[3], 2))
-        st.rerun()
+        st.session_state.slider_f = float(round(sem_w[2], 2)); st.session_state.slider_t = float(round(sem_w[3], 2)); st.rerun()
 
     w_macro = st.sidebar.slider("매크로 (환율/금리/물동량)", 0.0, 1.0, key="slider_m", step=0.01)
     w_global = st.sidebar.slider("글로벌 시장 위험 (미국 지수)", 0.0, 1.0, key="slider_g", step=0.01)
     w_fear = st.sidebar.slider("시장 공포 (VIX 지수)", 0.0, 1.0, key="slider_f", step=0.01)
     w_tech = st.sidebar.slider("국내 기술적 지표 (이동평균선)", 0.0, 1.0, key="slider_t", step=0.01)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔒 관리자 모드")
+    admin_id_input = st.sidebar.text_input("아이디", key="admin_id")
+    admin_pw_input = st.sidebar.text_input("비밀번호", type="password", key="admin_pw")
+    is_admin = (admin_id_input == ADMIN_ID and admin_pw_input == ADMIN_PW)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("자발적 후원으로 운영됩니다.")
+    st.sidebar.write("카카오뱅크 3333-23-8667708 (ㅈㅅㅎ)")
 
     total_w = w_macro + w_tech + w_global + w_fear
     if total_w == 0: st.error("가중치 합이 0일 수 없습니다."); st.stop()
@@ -368,35 +351,13 @@ try:
     c_gauge, c_guide = st.columns([1, 1.6])
     with c_guide: 
         st.markdown('<p class="guide-header">💡 지수를 더 똑똑하게 보는 법</p>', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class="guide-text">
-        0-40 (Safe): 적극적 수익 추구. <br>
-        40-60 (Watch): 현금 비중 조절 시작. <br>
-        60-80 (Danger): 방어적 운용 및 리스크 관리. <br>
-        80-100 (panic): 최우선 리스크 관리.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="guide-text">0-40 (Safe): 적극적 수익 추구. <br>40-60 (Watch): 현금 비중 조절 시작. <br>60-80 (Danger): 방어적 운용 및 리스크 관리. <br>80-100 (panic): 최우선 리스크 관리.</div>""", unsafe_allow_html=True)
         
     with c_gauge: 
-        fig_gauge = go.Figure(go.Indicator(
-            mode="gauge+number", 
-            value=total_risk_index, 
-            title={'text': "주식 시장 위험 지수", 'font': {'size': 20}},
-            number={'suffix': ""}, 
-            gauge={
-                'axis': {'range': [0, 100]}, 
-                'bar': {'color': "black"},
-                'steps': [
-                    {'range': [0, 40], 'color': "green"}, 
-                    {'range': [40, 60], 'color': "yellow"}, 
-                    {'range': [60, 80], 'color': "orange"}, 
-                    {'range': [80, 100], 'color': "red"}
-                ]}))
-        fig_gauge.update_layout(margin=dict(l=40, r=40, t=80, b=40), height=350, autosize=True)
-        st.plotly_chart(fig_gauge, use_container_width=True)
+        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=total_risk_index, title={'text': "주식 시장 위험 지수", 'font': {'size': 20}}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "black"}, 'steps': [{'range': [0, 40], 'color': "green"}, {'range': [40, 60], 'color': "yellow"}, {'range': [60, 80], 'color': "orange"}, {'range': [80, 100], 'color': "red"}]}))
+        fig_gauge.update_layout(margin=dict(l=40, r=40, t=80, b=40), height=350, autosize=True); st.plotly_chart(fig_gauge, use_container_width=True)
 
     st.markdown("---")
-    # ... (뉴스 및 게시판 생략 가능하지만 구조상 유지)
     cn, cr = st.columns(2)
     with cn:
         st.subheader("📰 글로벌 경제 뉴스 (Groq AI 요약)")
@@ -406,80 +367,85 @@ try:
             st.markdown(f"- [{a['title']}]({a['link']})")
             all_titles += a['title'] + ". "
         if news_data:
-            with st.spinner("AI 분석 중..."):
-                prompt = f"다음 뉴스 요약: {all_titles}"
+            with st.spinner("AI가 뉴스를 분석 중입니다..."):
+                prompt = f"다음은 최근 주요 경제 뉴스 제목들입니다: {all_titles}\n\n이 뉴스들을 종합하여 현재 금융 시장의 핵심 리스크와 투자자가 유의해야 할 점을 분석해줘. 지침: 1. 표준 한국어 준수. 2. 외국어 번역 표현. 3. 두 문장 요약. 4. 강조 기호 사용 금지. 5. 한자 포함 금지. 6. 제목성 문구 금지."
                 summary_text = get_ai_analysis(prompt)
-                st.markdown(f'<div class="ai-analysis-box">{summary_text}</div>', unsafe_allow_html=True)
+                st.markdown(f"""<div class="ai-analysis-box"><strong>🔎 AI 뉴스 통합 분석</strong><br><br>{summary_text.replace('🔎 AI 뉴스 통합 분석:', '').strip()}</div>""", unsafe_allow_html=True)
 
     with cr:
         st.subheader("💬 한 줄 의견(익명)")
+        st.markdown("""<style>.stMarkdown p { margin-top: -2px !important; margin-bottom: -2px !important; line-height: 1.2 !important; padding: 0px !important; } .element-container { margin-bottom: -1px !important; padding: 0px !important; } button[data-testid="baseButton-secondary"] { padding: 0px !important; height: 18px !important; min-height: 18px !important; line-height: 1 !important; border: none !important; background: transparent !important; color: #555 !important; font-size: 12px !important; }</style>""", unsafe_allow_html=True)
         st.session_state.board_data = load_board_data()
+        ITEMS_PER_PAGE = 20; total_posts = len(st.session_state.board_data); total_pages = max(1, (total_posts - 1) // ITEMS_PER_PAGE + 1)
+        if 'current_page' not in st.session_state: st.session_state.current_page = 1
         board_container = st.container(height=200) 
         with board_container:
-            for post in st.session_state.board_data[::-1]:
-                st.markdown(f"**{post.get('Author','익명')}**: {post.get('Content','')} <small>({post.get('date','')})</small>", unsafe_allow_html=True)
+            if not st.session_state.board_data: st.write("의견이 없습니다.")
+            else:
+                reversed_data = st.session_state.board_data[::-1]; start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE; paged_data = reversed_data[start_idx : start_idx + ITEMS_PER_PAGE]
+                for i, post in enumerate(paged_data):
+                    unique_id = f"post_{start_idx + i}"; bc1, bc2 = st.columns([12, 1.5]) 
+                    bc1.markdown(f"<p style='font-size:1.1rem;'><b>{post.get('Author','익명')}</b>: {post.get('Content','')} <small style='color:gray; font-size:0.8rem;'>({post.get('date','')})</small></p>", unsafe_allow_html=True)
+                    with bc2.popover("편집"):
+                        chk_pw = st.text_input("비밀번호", type="password", key=f"chk_{unique_id}"); stored_pw = str(post.get('Password', '')).strip()
+                        if chk_pw and chk_pw.strip() == stored_pw:
+                            new_val = st.text_input("수정 내용", value=post.get('Content',''), key=f"edit_{unique_id}"); btn1, btn2 = st.columns(2)
+                            if btn1.button("수정 완료", key=f"up_{unique_id}"):
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="update"): st.success("성공"); st.rerun()
+                            if btn2.button("삭제", key=f"del_{unique_id}"):
+                                if save_to_gsheet(post.get('date',''), post.get('Author',''), new_val, stored_pw, action="delete"): st.success("성공"); st.rerun()
+        if total_pages > 1:
+            pc1, pc2, pc3 = st.columns([1, 2, 1])
+            if pc1.button("◀", disabled=st.session_state.current_page == 1): st.session_state.current_page -= 1; st.rerun()
+            pc2.markdown(f"<p style='text-align:center; font-size:14px;'>{st.session_state.current_page}/{total_pages}</p>", unsafe_allow_html=True)
+            if pc3.button("▶", disabled=st.session_state.current_page == total_pages): st.session_state.current_page += 1; st.rerun()
+        with st.form("board_form", clear_on_submit=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 3.5, 0.8])
+            u_name = f_col1.text_input("성함", value="익명", placeholder="성함"); u_pw = f_col2.text_input("비번", type="password", placeholder="비번"); u_content = f_col3.text_input("내용", max_chars=50, placeholder="한 줄 의견"); submit = f_col4.form_submit_button("등록")
+            if submit:
+                if any(word in u_content for word in ["바보", "멍청이", "개새끼", "시발"]): st.error("금지어")
+                elif not u_pw or not u_content: st.error("입력 필수")
+                else:
+                    if save_to_gsheet(get_kst_now().strftime("%Y-%m-%d %H:%M:%S"), u_name, u_content, u_pw, action="append"): st.success("등록 성공"); st.rerun()
 
-    # 7. 백테스팅 (최신 인덱스 기준)
+    # 7. 백테스팅 (복원 및 최신 데이터 보정)
     st.markdown("---")
     st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
-    dates = ks_s.tail(252).index
-    hist_risks = []
+    dates = ks_s.tail(252).index; hist_risks = []
     for d in dates:
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
         hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.iloc[-1]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
     hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
-    fig_bt = go.Figure()
-    fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red')))
-    fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot')))
-    fig_bt.update_layout(yaxis2=dict(overlaying="y", side="right"), height=400)
-    st.plotly_chart(fig_bt, use_container_width=True)
+    cb1, cb2 = st.columns([3, 1])
+    with cb1:
+        fig_bt = go.Figure(); fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red'), connectgaps=True)); fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['KOSPI'], name="KOSPI", yaxis="y2", line=dict(color='gray', dash='dot'), connectgaps=True)); fig_bt.update_layout(yaxis=dict(range=[0, 100]), yaxis2=dict(overlaying="y", side="right"), height=400); st.plotly_chart(fig_bt, use_container_width=True)
+    with cb2: st.metric("상관계수 (Corr)", f"{hist_df['Risk'].corr(hist_df['KOSPI']):.2f}")
 
-    # 9. 지표별 상세 분석 (KOSPI 기술적 분석 보강)
+    # 9. 지표별 분석 (KOSPI 그래프 최신 반영 핵심 수정)
     st.markdown("---")
     st.subheader("🔍 주요 상관관계 및 기술적 분석")
     
-    def create_chart(series, title, threshold):
-        sub_s = series.tail(100)
-        fig = go.Figure(go.Scatter(x=sub_s.index, y=sub_s.values, name=title))
-        fig.add_hline(y=threshold, line_width=2, line_color="red")
-        return fig
+    def create_chart(series, title, threshold, desc_text):
+        sub_s = series.tail(252); fig = go.Figure(go.Scatter(x=sub_s.index, y=sub_s.values, name=title, connectgaps=True)); fig.add_hline(y=threshold, line_width=2, line_color="red"); return fig
 
-    r_row1_c1, r_row1_c2, r_row1_c3 = st.columns(3)
-    with r_row1_c1:
-        st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.tail(252).mean()*0.9), use_container_width=True)
-    with r_row1_c2:
-        st.plotly_chart(create_chart(fx_s, "환율", fx_s.tail(252).mean()*1.02), use_container_width=True)
-    with r_row1_c3:
-        st.plotly_chart(create_chart(cp_s, "Copper", cp_s.tail(252).mean()*0.9), use_container_width=True)
+    r1_c1, r1_c2, r1_c3 = st.columns(3)
+    with r1_c1: st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.tail(252).mean()*0.9, ""), use_container_width=True)
+    with r1_c2: st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_s.tail(252).mean()*1.02, ""), use_container_width=True)
+    with r1_c3: st.plotly_chart(create_chart(cp_s, "Copper", cp_s.tail(252).mean()*0.9, ""), use_container_width=True)
 
-    r_row2_c1, r_row2_c2, r_row2_c3 = st.columns(3)
-    with r_row2_c1:
-        st.plotly_chart(create_chart(yield_curve, "금리차", 0.0), use_container_width=True)
-    with r_row2_c2:
+    r2_c1, r2_c2, r2_c3 = st.columns(3)
+    with r2_c1: st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, ""), use_container_width=True)
+    with r2_c2:
         st.subheader("KOSPI 기술적 분석")
-        # 데이터 유무와 관계없이 무조건 확보된 최신 30개 표시
-        ks_recent = ks_s.tail(30)
-        ma20_recent = ma20.reindex(ks_recent.index).ffill()
-        
-        fig_ks = go.Figure()
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가", line=dict(color='royalblue', width=4), mode='lines+markers'))
-        fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20_recent.values, name="20일선", line=dict(color='orange', width=2, dash='dot')))
-        
-        # 오늘 날짜 값 강조 표시
-        fig_ks.add_annotation(
-            x=ks_recent.index[-1], y=ks_recent.values[-1],
-            text=f"현재가: {ks_recent.values[-1]:.2f}",
-            showarrow=True, arrowhead=1, ax=0, ay=-40,
-            bgcolor="royalblue", font=dict(color="white")
-        )
-        fig_ks.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_ks, use_container_width=True)
-        st.info(f"데이터 기준 시점: {ks_recent.index[-1].strftime('%Y-%m-%d')}")
-        
-    with r_row2_c3:
-        st.plotly_chart(create_chart(vx_s, "VIX", 30), use_container_width=True)
+        # 수정 포인트: 날짜 기준이 아닌 최신 Row 30개로 고정하여 오늘 데이터 강제 노출
+        ks_recent = ks_s.tail(30); ma20_recent = ma20.reindex(ks_recent.index).ffill()
+        fig_ks = go.Figure(); fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가", line=dict(color='royalblue', width=3), mode='lines+markers', connectgaps=True)); fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20_recent.values, name="20일선", line=dict(color='orange', width=2, dash='dot'), connectgaps=True))
+        # 그래프 끝점에 강조 레이블 추가
+        fig_ks.add_annotation(x=ks_recent.index[-1], y=ks_recent.values[-1], text=f"반영: {ks_recent.values[-1]:.2f}", showarrow=True, arrowhead=1, ax=0, ay=-40, bgcolor="royalblue", font=dict(color="white"))
+        fig_ks.update_layout(margin=dict(l=0, r=0, t=30, b=0), height=350); st.plotly_chart(fig_ks, use_container_width=True)
+    with r2_c3: st.plotly_chart(create_chart(vx_s, "VIX", 30, ""), use_container_width=True)
 
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 데이터 강제 동기화 모드 작동 중")
+st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 데이터 강제 동기화 작동 중")
