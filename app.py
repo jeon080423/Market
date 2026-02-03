@@ -183,7 +183,7 @@ with st.expander("📖 지수 가이드북"):
 # 4. 데이터 수집 함수 (최적화: 일괄 다운로드)
 @st.cache_data(ttl=900) # 15분으로 연장
 def load_data():
-    # yfinance는 end_date 자정 이전까지의 데이터를 수집하므로, 오늘 데이터를 포함하려면 내일 날짜를 지정해야 함
+    # 오늘 데이터를 포함하기 위해 내일 날짜로 end_date 설정
     end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = "2019-01-01"
     
@@ -280,6 +280,7 @@ try:
     ks_s = get_clean_series(kospi).ffill()
     sp_s = get_clean_series(sp500).reindex(ks_s.index).ffill()
     fx_s = get_clean_series(fx).reindex(ks_s.index).ffill()
+    # 금리 데이터는 휴장일 차이로 인해 reindex 시 결측치가 많이 생길 수 있어 보강함
     b10_s = get_clean_series(bond10).reindex(ks_s.index).ffill()
     b2_s = get_clean_series(bond2).reindex(ks_s.index).ffill()
     vx_s = get_clean_series(vix_data).reindex(ks_s.index).ffill()
@@ -288,6 +289,7 @@ try:
     wt_s = get_clean_series(wti_data).reindex(ks_s.index).ffill()
     dx_s = get_clean_series(dxy_data).reindex(ks_s.index).ffill()
     
+    # 금리차 계산: 보정된 데이터를 사용하여 계산
     yield_curve = b10_s - b2_s
     ma20 = ks_s.rolling(window=20).mean() # 전체 데이터 기반 이동평균 계산
 
@@ -508,7 +510,7 @@ try:
     for d in dates:
         # 데이터 끊김 현상 보정을 위해 ffill된 데이터 사용
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
-        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
+        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.iloc[-1]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
     hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
     cb1, cb2 = st.columns([3, 1])
     with cb1:
@@ -589,12 +591,17 @@ try:
             """, unsafe_allow_html=True)
 
     def create_chart(series, title, threshold, desc_text):
-        fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title, connectgaps=True)) # connectgaps 추가
-        fig.add_hline(y=threshold, line_width=2, line_color="red")
-        fig.add_annotation(x=series.index[len(series)//2], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
-        fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue")
-        fig.add_annotation(x=COVID_EVENT_DATE, y=1, yref="paper", text="COVID 지수 폭락 기점", showarrow=False, font=dict(color="blue"), xanchor="left", xshift=5, bgcolor="white")
-        return fig
+        # 데이터가 비어있지 않은지 확인 후 그래프 생성
+        if series is not None and not series.empty:
+            fig = go.Figure(go.Scatter(x=series.index, y=series.values, name=title, connectgaps=True)) # connectgaps 추가
+            fig.add_hline(y=threshold, line_width=2, line_color="red")
+            # 주석 위치 계산을 위한 안전장치
+            annot_idx = len(series)//2 if len(series) > 0 else 0
+            fig.add_annotation(x=series.index[annot_idx], y=threshold, text=desc_text, showarrow=False, font=dict(color="red"), bgcolor="white", yshift=10)
+            fig.add_vline(x=COVID_EVENT_DATE, line_width=1.5, line_dash="dash", line_color="blue")
+            fig.add_annotation(x=COVID_EVENT_DATE, y=1, yref="paper", text="COVID 지수 폭락 기점", showarrow=False, font=dict(color="blue"), xanchor="left", xshift=5, bgcolor="white")
+            return fig
+        return go.Figure()
 
     r1_c1, r1_c2, r1_c3 = st.columns(3)
     with r1_c1:
@@ -614,6 +621,7 @@ try:
     r2_c1, r2_c2, r2_c3 = st.columns(3)
     with r2_c1:
         st.subheader("장단기 금리차")
+        # 금리차 그래프 생성
         st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, "0 이하 역전 시 위험"), use_container_width=True)
         st.info("**금리차**: 금리 역전은 경기 침체 강력 전조  \n**빨간선 기준**: 금리차가 0(수평)이 되는 역전 한계 지점")
     with r2_c2:
