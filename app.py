@@ -183,7 +183,8 @@ with st.expander("📖 지수 가이드북"):
 # 4. 데이터 수집 함수 (최적화: 일괄 다운로드)
 @st.cache_data(ttl=900) # 15분으로 연장
 def load_data():
-    end_date = datetime.now()
+    # yfinance는 end_date 자정 이전까지의 데이터를 수집하므로, 오늘 데이터를 포함하려면 내일 날짜를 지정해야 함
+    end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = "2019-01-01"
     
     # 여러 티커를 한 번에 다운로드하여 API 호출 횟수 절약
@@ -507,7 +508,7 @@ try:
     for d in dates:
         # 데이터 끊김 현상 보정을 위해 ffill된 데이터 사용
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
-        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.iloc[-1]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
+        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
     hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
     cb1, cb2 = st.columns([3, 1])
     with cb1:
@@ -523,7 +524,9 @@ try:
     st.markdown("---")
     st.subheader("🦢 블랙스완(Black Swan) 과거 사례 비교 시뮬레이션")
     def get_norm_risk_proxy(t, s, e):
-        d = yf.download(t, start=s, end=e)['Close'].ffill() # ffill 추가
+        # 최신 데이터를 위해 end_date 보정
+        bs_end = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d') if e == datetime.now().strftime('%Y-%m-%d') else e
+        d = yf.download(t, start=s, end=bs_end)['Close'].ffill() # ffill 추가
         if isinstance(d, pd.DataFrame): d = d.iloc[:, 0]
         return 100 - ((d - d.min()) / (d.max() - d.min()) * 100)
     col_bs1, col_bs2 = st.columns(2)
@@ -572,8 +575,8 @@ try:
             2. 한자(漢字)를 단 하나도 포함하지 마. '仔細'와 같은 표현 대신 '자세히'를 사용해.
             3. 답변 내용에 ** 기호나 ## 기호와 같은 마크다운 강조 기호를 절대 사용하지 마.
             4. 가독성을 위해 다음 형식을 엄격히 지켜줘 (강조 기호 없이 텍스트만 출력):
-               [주요 지표 요약]: 각 지표의 상태를 불렛 포인트로 설명.
-               [시장 진단 및 전망]: 종합적인 분위기와 투자자 주의 사항을 2~3문장으로 설명.
+                [주요 지표 요약]: 각 지표의 상태를 불렛 포인트로 설명.
+                [시장 진단 및 전망]: 종합적인 분위기와 투자자 주의 사항을 2~3문장으로 설명.
             5. 쉽고 전문적인 톤을 유지해.
             """
             analysis_output = get_ai_analysis(ai_desc_prompt)
