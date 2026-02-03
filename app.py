@@ -24,6 +24,7 @@ except ImportError:
 # 2. Secrets에서 API Key 불러오기
 try:
     NEWS_API_KEY = st.secrets["news_api"]["api_key"]
+    # gemini 대신 groq 키 호출
     GROQ_API_KEY = st.secrets["groq"]["api_key"]
 except KeyError:
     st.error("Secrets 설정(API Key)이 누락되었습니다. 설정을 확인해 주세요.")
@@ -35,20 +36,28 @@ try:
 except Exception as e:
     st.error(f"Groq 설정 중 오류 발생: {e}")
 
-# AI 분석 함수 정의
-@st.cache_data(ttl=3600)
+# AI 분석 함수 정의 (할당량 보호를 위해 캐시 적용)
+@st.cache_data(ttl=3600)  # 1시간 동안 동일 프롬프트에 대해 API 호출 방지
 def get_ai_analysis(prompt):
     try:
+        # Groq 클라이언트를 사용한 텍스트 생성
         chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
             model="openai/gpt-oss-20b",
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
         return f"AI 분석을 가져오는 중 오류가 발생했습니다: {str(e)}"
 
+# 코로나19 폭락 기점 날짜 정의 (S&P 500 고점 기준)
 COVID_EVENT_DATE = "2020-02-19"
 
+# 관리자 설정 (보안 강화: st.secrets 사용)
 try:
     ADMIN_ID = st.secrets["auth"]["admin_id"]
     ADMIN_PW = st.secrets["auth"]["admin_pw"]
@@ -56,25 +65,71 @@ except KeyError:
     ADMIN_ID = "admin_temp" 
     ADMIN_PW = "temp_pass"
 
+# 구글 시트 설정
 SHEET_ID = "1eu_AeA54pL0Y0axkhpbf5_Ejx0eqdT0oFM3WIepuisU"
 GSHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyli4kg7O_pxUOLAOFRCCiyswB5TXrA0RUMvjlTirSxLi4yz3tXH1YoGtNUyjztpDsb/exec" 
 
+# CSS 주입: 제목 폰트 유동성 및 가이드북 간격/정렬 조정
 st.markdown("""
     <style>
-    h1 { font-size: clamp(24px, 4vw, 48px) !important; }
-    .guide-header { font-size: clamp(18px, 2.5vw, 28px) !important; font-weight: 600; margin-bottom: 45px !important; margin-top: 60px !important; padding-top: 10px !important; }
-    .guide-text { font-size: clamp(14px, 1.2vw, 20px) !important; line-height: 1.8 !important; }
-    div[data-testid="stMarkdownContainer"] table { width: 100% !important; table-layout: auto !important; margin-bottom: 10px !important; }
-    div[data-testid="stMarkdownContainer"] table th, div[data-testid="stMarkdownContainer"] table td { font-size: clamp(12px, 1.1vw, 16px) !important; word-wrap: break-word !important; padding: 12px 4px !important; }
-    hr { margin-top: 1rem !important; margin-bottom: 1rem !important; }
-    .ai-analysis-box { background-color: #f0f7ff; padding: 15px 20px; border-radius: 10px; border-left: 5px solid #007bff; line-height: 1.65; font-size: 1.0rem; margin-bottom: 10px; }
+    /* 메인 제목 유동적 폰트 크기 설정 */
+    h1 {
+        font-size: clamp(24px, 4vw, 48px) !important;
+    }
+    
+    /* 지수 가이드북 제목 스타일 */
+    .guide-header {
+        font-size: clamp(18px, 2.5vw, 28px) !important;
+        font-weight: 600;
+        margin-bottom: 45px !important; 
+        margin-top: 60px !important;    
+        padding-top: 10px !important;
+    }
+
+    /* 설명글 유동적 폰트 및 줄간격 설정 */
+    .guide-text {
+        font-size: clamp(14px, 1.2vw, 20px) !important;
+        line-height: 1.8 !important;
+    }
+    
+    /* 가이드북 내 테이블 스타일 */
+    div[data-testid="stMarkdownContainer"] table {
+        width: 100% !important;
+        table-layout: auto !important;
+        margin-bottom: 10px !important;
+    }
+    div[data-testid="stMarkdownContainer"] table th,
+    div[data-testid="stMarkdownContainer"] table td {
+        font-size: clamp(12px, 1.1vw, 16px) !important; /* 표 텍스트 유동성 */
+        word-wrap: break-word !important;
+        padding: 12px 4px !important; 
+    }
+    
+    /* 수평선(hr) 여백 조정 */
+    hr {
+        margin-top: 1rem !important;
+        margin-bottom: 1rem !important;
+    }
+
+    /* AI 분석 결과 박스 커스텀 (높이 및 줄간격 최적화) */
+    .ai-analysis-box {
+        background-color: #f0f7ff;
+        padding: 15px 20px;
+        border-radius: 10px;
+        border-left: 5px solid #007bff;
+        line-height: 1.65;
+        font-size: 1.0rem;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
+# 한국 시간(KST) 설정을 위한 함수
 def get_kst_now():
     return datetime.now() + timedelta(hours=9)
 
+# 3. 제목 및 설명
 st.title("KOSPI 위험 모니터링 (KOSPI Market Risk Index)")
 st.markdown(f"""
 이 대시보드는 **향후 1주일(5거래일) 내외**의 시장 변동 위험을 포착하는데 최적화 되어 있습니다.  **검증되지 않은 모델** 이기때문에 **참고만** 하세요.
@@ -82,6 +137,7 @@ st.markdown(f"""
 """)
 st.markdown("---")
 
+# --- [안내서 섹션] ---
 with st.expander("📖 지수 가이드북"):
     st.subheader("1. 지수 산출 핵심 지표 (Core Indicators)")
     st.write("""
@@ -91,22 +147,28 @@ with st.expander("📖 지수 가이드북"):
     * **시장 심리**: **VIX(공포 지수)** 를 통해 투자자의 불안 심리와 변동성 전조를 파악합니다.
     * **실물 경제**: 경기 선행 지표인 **구리 가격(Copper)** 과 **장단기 금리차**를 포함합니다.
     """)
+    
     st.divider()
+
     st.subheader("2. 선행성 분석 범위 및 효과 (Lag Analysis)")
     st.markdown("#### **① 선행성 분석 범위 (Lag Optimization)**")
     st.write("""
     * **단기 선행성 (1~5일)**: 현재 모델의 `find_best_lag` 함수는 각 지표와 KOSPI 간의 상관계수가 가장 높게 나타나는 지연 시간을 0일에서 5일 사이에서 찾습니다. 이는 매크로 지표의 변화가 국내 증시에 즉각적 혹은 수일 내에 반영되는 단기적 '전조 신호'를 포착하는 데 최적화되어 있습니다.
     * **중장기 선행성 (1~3개월)**: '장단기 금리차'와 같은 특정 지표는 수개월 이상의 시차를 두고 실물 경기에 영향을 주지만, 본 대시보드는 주식 시장의 단기 하락 위험 모니터링에 초점을 맞추고 있어 모델 내부적으로는 최근의 변동 기여도를 우선시합니다.
     """)
+    
     st.markdown("#### **② 지표별 특성에 따른 선행 효과**")
     st.write("""
     * **공포 지수(VIX) 및 환율**: 통상적으로 당일 혹은 1~2일 내외의 매우 짧은 선행성을 보이며 시장의 즉각적인 심리를 반영합니다.
     * **구리 가격 및 물동량(BDRY)**: 실물 경기를 반영하므로 주가지수보다 수일에서 수주 앞서 추세적 변화를 보이는 경향이 있습니다.
     * **장단기 금리차**: 실제 경기 침체는 6개월~1년 이상의 시차를 두고 발생할 수 있으나, 금융 시장은 이를 선반영하여 수주 내에 하락 압력을 받기 시작합니다.
     """)
+    
     st.markdown("#### **③ 요약**")
     st.info("본 대시보드의 위험 지수는 수개월 단위의 거시적 경제 지표보다는, **향후 1주일(5거래일) 내외**의 시장 변동 위험을 포착하고 대비하는데 최적화되어 설계되었습니다.")
+
     st.divider()
+    
     st.subheader("3. 수리적 산출 공식")
     @st.cache_data
     def get_math_formulas():
@@ -118,9 +180,10 @@ with st.expander("📖 지수 가이드북"):
         st.latex(r"Z = \frac{x - \mu}{\sigma}")
     get_math_formulas()
 
-@st.cache_data(ttl=60) # 최신 업데이트 확인을 위해 1분으로 단축
+# 4. 데이터 수집 함수 (실시간 데이터 보정을 위해 수정)
+@st.cache_data(ttl=60) 
 def load_data():
-    # 종료일 설정: 오늘이 KST 기준 장이 끝났을 수 있으므로 내일 날짜까지 요청
+    # 최신 데이터 누락 방지를 위해 종료일을 내일로 설정
     end_date = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
     start_date = "2019-01-01"
     
@@ -130,9 +193,20 @@ def load_data():
         "copper": "HG=F", "freight": "BDRY", "wti": "CL=F", "dxy": "DX-Y.NYB"
     }
     
-    # auto_adjust=True 추가하여 종가 데이터 무결성 강화
-    data = yf.download(list(tickers.values()), start=start_date, end=end_date, interval='1d', auto_adjust=True)['Close']
+    # 1. 일봉 데이터 다운로드
+    data = yf.download(list(tickers.values()), start=start_date, end=end_date, interval='1d')['Close']
     
+    # 2. 실시간성 보완 (오늘 데이터가 0으로 찍히거나 누락되는 경우 대비하여 1분 봉의 마지막 값을 종가로 취급)
+    try:
+        realtime_ks = yf.download("^KS11", period="1d", interval="1m")['Close']
+        if not realtime_ks.empty:
+            today_kst = get_kst_now().date()
+            # 데이터프레임 인덱스를 날짜 형식으로 통일하여 오늘 값 덮어쓰기
+            last_price = realtime_ks.iloc[-1]
+            data.loc[pd.to_datetime(today_kst), tickers["kospi"]] = last_price
+    except:
+        pass
+
     sector_tickers = {
         "반도체": "005930.KS", "자동차": "005380.KS", "2차전지": "051910.KS",
         "바이오": "207940.KS", "인터넷": "035420.KS", "금융": "055550.KS",
@@ -147,10 +221,17 @@ def load_data():
         data[[tickers["dxy"]]], sector_raw, sector_tickers
     )
 
-@st.cache_data(ttl=1800)
+# 4.5 글로벌 경제 뉴스 수집 함수 (최적화: 캐시 연장)
+@st.cache_data(ttl=1800) # 30분으로 연장
 def get_market_news():
     api_url = "https://newsapi.org/v2/everything"
-    params = {"q": "stock market risk OR recession OR inflation", "sortBy": "publishedAt", "language": "en", "pageSize": 5, "apiKey": NEWS_API_KEY}
+    params = {
+        "q": "stock market risk OR recession OR inflation",
+        "sortBy": "publishedAt",
+        "language": "en",
+        "pageSize": 5,
+        "apiKey": NEWS_API_KEY
+    }
     try:
         res = requests.get(api_url, params=params, timeout=10)
         data = res.json()
@@ -163,6 +244,7 @@ def get_market_news():
     except:
         return []
 
+# 4.6 게시판 데이터 로드/저장 로직
 @st.cache_data(ttl=10) 
 def load_board_data():
     try:
@@ -177,7 +259,13 @@ def load_board_data():
 
 def save_to_gsheet(date, author, content, password, action="append"):
     try:
-        payload = {"date": str(date), "author": str(author), "content": str(content), "password": str(password), "action": action}
+        payload = {
+            "date": str(date),
+            "author": str(author),
+            "content": str(content),
+            "password": str(password),
+            "action": action
+        }
         res = requests.post(GSHEET_WEBAPP_URL, data=json.dumps(payload), timeout=15)
         if res.status_code == 200:
             st.cache_data.clear()
@@ -195,7 +283,7 @@ try:
         if df is None or df.empty: return pd.Series(dtype='float64')
         if isinstance(df, pd.DataFrame):
             df = df.iloc[:, 0]
-        # 타임존 제거 및 중복 제거 (가장 최신 값 유지)
+        # 인덱스를 타임존 없는 Datetime으로 변환하여 매칭 오류 방지
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df[~df.index.duplicated(keep='last')]
 
@@ -236,15 +324,18 @@ try:
             s_cp = get_hist_score_val(_cp_s.shift(best_lags['CP']), d, True)
             s_vx = get_hist_score_val(_vx_s.shift(best_lags['VX']), d)
             data_rows.append([ (s_fx + s_b10 + s_cp) / 3, s_sp, s_vx, max(0, min(100, 100 - (float(_ks_s.loc[d]) / float(_ma20.loc[d]) - 0.9) * 500)), _ks_s.loc[d] ])
+        
         df_reg = pd.DataFrame(data_rows, columns=['Macro', 'Global', 'Fear', 'Tech', 'KOSPI']).replace([np.inf, -np.inf], np.nan).dropna()
         X = (df_reg.iloc[:, :4] - df_reg.iloc[:, :4].mean()) / (df_reg.iloc[:, :4].std() + 1e-6)
         Y = (df_reg['KOSPI'] - df_reg['KOSPI'].mean()) / (df_reg['KOSPI'].std() + 1e-6)
+        
         coeffs = np.linalg.lstsq(X, Y, rcond=None)[0]
         adjusted_importance = (np.abs(coeffs) * X.std().values) + 1e-6 
         return adjusted_importance / np.sum(adjusted_importance)
 
     sem_w = calculate_ml_lagged_weights(ks_s, sp_s, fx_s, b10_s, cp_s, ma20, vx_s)
 
+    # 5. 사이드바 - 가중치 설정
     st.sidebar.header("⚙️ 지표별 가중치 설정")
     if 'slider_m' not in st.session_state: st.session_state.slider_m = float(round(sem_w[0], 2))
     if 'slider_g' not in st.session_state: st.session_state.slider_g = float(round(sem_w[1], 2))
@@ -277,19 +368,65 @@ try:
     c_gauge, c_guide = st.columns([1, 1.6])
     with c_guide: 
         st.markdown('<p class="guide-header">💡 지수를 더 똑똑하게 보는 법</p>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="guide-text">
+        0-40 (Safe): 적극적 수익 추구. <br>
+        40-60 (Watch): 현금 비중 조절 시작. <br>
+        60-80 (Danger): 방어적 운용 및 리스크 관리. <br>
+        80-100 (panic): 최우선 리스크 관리.
+        </div>
+        """, unsafe_allow_html=True)
+        
     with c_gauge: 
-        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=total_risk_index, title={'text': "주식 시장 위험 지수"}))
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number", 
+            value=total_risk_index, 
+            title={'text': "주식 시장 위험 지수", 'font': {'size': 20}},
+            number={'suffix': ""}, 
+            gauge={
+                'axis': {'range': [0, 100]}, 
+                'bar': {'color': "black"},
+                'steps': [
+                    {'range': [0, 40], 'color': "green"}, 
+                    {'range': [40, 60], 'color': "yellow"}, 
+                    {'range': [60, 80], 'color': "orange"}, 
+                    {'range': [80, 100], 'color': "red"}
+                ]}))
+        fig_gauge.update_layout(margin=dict(l=40, r=40, t=80, b=40), height=350, autosize=True)
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # 7. 백테스팅 (최근 1년 tail 강제 지정)
     st.markdown("---")
-    st.subheader("📉 시장 위험 지수 백테스팅")
-    # ks_s 인덱스를 타임존 없는 KST 날짜로 정렬하여 최신 252일 확보
+    # ... (뉴스 및 게시판 생략 가능하지만 구조상 유지)
+    cn, cr = st.columns(2)
+    with cn:
+        st.subheader("📰 글로벌 경제 뉴스 (Groq AI 요약)")
+        news_data = get_market_news()
+        all_titles = ""
+        for a in news_data:
+            st.markdown(f"- [{a['title']}]({a['link']})")
+            all_titles += a['title'] + ". "
+        if news_data:
+            with st.spinner("AI 분석 중..."):
+                prompt = f"다음 뉴스 요약: {all_titles}"
+                summary_text = get_ai_analysis(prompt)
+                st.markdown(f'<div class="ai-analysis-box">{summary_text}</div>', unsafe_allow_html=True)
+
+    with cr:
+        st.subheader("💬 한 줄 의견(익명)")
+        st.session_state.board_data = load_board_data()
+        board_container = st.container(height=200) 
+        with board_container:
+            for post in st.session_state.board_data[::-1]:
+                st.markdown(f"**{post.get('Author','익명')}**: {post.get('Content','')} <small>({post.get('date','')})</small>", unsafe_allow_html=True)
+
+    # 7. 백테스팅 (최신 인덱스 기준)
+    st.markdown("---")
+    st.subheader("📉 시장 위험 지수 백테스팅 (최근 1년)")
     dates = ks_s.tail(252).index
     hist_risks = []
     for d in dates:
         m = (get_hist_score_val(fx_s, d) + get_hist_score_val(b10_s, d) + get_hist_score_val(cp_s, d, True)) / 3
-        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.loc[d]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
+        hist_risks.append((m * w_macro + max(0, min(100, 100 - (float(ks_s.loc[d]) / float(ma20.iloc[-1]) - 0.9) * 500)) * w_tech + get_hist_score_val(sp_s, d, True) * w_global + get_hist_score_val(vx_s, d) * w_fear) / total_w)
     hist_df = pd.DataFrame({'Date': dates, 'Risk': hist_risks, 'KOSPI': ks_s.loc[dates].values})
     fig_bt = go.Figure()
     fig_bt.add_trace(go.Scatter(x=hist_df['Date'], y=hist_df['Risk'], name="위험 지수", line=dict(color='red')))
@@ -297,56 +434,52 @@ try:
     fig_bt.update_layout(yaxis2=dict(overlaying="y", side="right"), height=400)
     st.plotly_chart(fig_bt, use_container_width=True)
 
-    # 9. 지표별 상세 분석 (가장 최신 30개 데이터 tail(30) 사용)
+    # 9. 지표별 상세 분석 (KOSPI 기술적 분석 보강)
     st.markdown("---")
-    st.subheader("🔍 주요 상관관계 지표 분석")
+    st.subheader("🔍 주요 상관관계 및 기술적 분석")
     
-    def create_chart(series, title, threshold, desc_text):
-        # 개별 지표도 최신 252일치만 표시하여 로딩 속도 최적화 및 최신성 확보
-        sub_s = series.tail(252)
+    def create_chart(series, title, threshold):
+        sub_s = series.tail(100)
         fig = go.Figure(go.Scatter(x=sub_s.index, y=sub_s.values, name=title))
         fig.add_hline(y=threshold, line_width=2, line_color="red")
         return fig
 
-    r1_c1, r1_c2, r1_c3 = st.columns(3)
-    with r1_c1:
-        st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.tail(252).mean()*0.9, ""), use_container_width=True)
-    with r1_c2:
-        fx_th = float(fx_s.tail(252).mean() * 1.02)
-        st.plotly_chart(create_chart(fx_s, "원/달러 환율", fx_th, ""), use_container_width=True)
-    with r1_c3:
-        st.plotly_chart(create_chart(cp_s, "Copper", cp_s.tail(252).mean()*0.9, ""), use_container_width=True)
+    r_row1_c1, r_row1_c2, r_row1_c3 = st.columns(3)
+    with r_row1_c1:
+        st.plotly_chart(create_chart(sp_s, "S&P 500", sp_s.tail(252).mean()*0.9), use_container_width=True)
+    with r_row1_c2:
+        st.plotly_chart(create_chart(fx_s, "환율", fx_s.tail(252).mean()*1.02), use_container_width=True)
+    with r_row1_c3:
+        st.plotly_chart(create_chart(cp_s, "Copper", cp_s.tail(252).mean()*0.9), use_container_width=True)
 
-    r2_c1, r2_c2, r2_c3 = st.columns(3)
-    with r2_c1:
-        st.plotly_chart(create_chart(yield_curve, "금리차", 0.0, ""), use_container_width=True)
-    with r2_c2:
+    r_row2_c1, r_row2_c2, r_row2_c3 = st.columns(3)
+    with r_row2_c1:
+        st.plotly_chart(create_chart(yield_curve, "금리차", 0.0), use_container_width=True)
+    with r_row2_c2:
         st.subheader("KOSPI 기술적 분석")
-        # 수정 핵심: last('30D') 대신 무조건 마지막 30개 로우(Row)를 가져옴
+        # 데이터 유무와 관계없이 무조건 확보된 최신 30개 표시
         ks_recent = ks_s.tail(30)
         ma20_recent = ma20.reindex(ks_recent.index).ffill()
         
         fig_ks = go.Figure()
-        # 선 굵기 강화 및 데이터 포인트 표시
         fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ks_recent.values, name="현재가", line=dict(color='royalblue', width=4), mode='lines+markers'))
         fig_ks.add_trace(go.Scatter(x=ks_recent.index, y=ma20_recent.values, name="20일선", line=dict(color='orange', width=2, dash='dot')))
         
-        # 오늘 날짜와 가격을 그래프 위에 텍스트로 표시
+        # 오늘 날짜 값 강조 표시
         fig_ks.add_annotation(
             x=ks_recent.index[-1], y=ks_recent.values[-1],
-            text=f"오늘: {ks_recent.values[-1]:.2f}",
+            text=f"현재가: {ks_recent.values[-1]:.2f}",
             showarrow=True, arrowhead=1, ax=0, ay=-40,
             bgcolor="royalblue", font=dict(color="white")
         )
-        
         fig_ks.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_ks, use_container_width=True)
-        st.info(f"최종 데이터 포인트: {ks_recent.index[-1].strftime('%Y-%m-%d')}")
+        st.info(f"데이터 기준 시점: {ks_recent.index[-1].strftime('%Y-%m-%d')}")
         
-    with r2_c3:
-        st.plotly_chart(create_chart(vx_s, "VIX", 30, ""), use_container_width=True)
+    with r_row2_c3:
+        st.plotly_chart(create_chart(vx_s, "VIX", 30), use_container_width=True)
 
 except Exception as e:
     st.error(f"오류 발생: {str(e)}")
 
-st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | KOSPI 데이터 실시간 반영 모드")
+st.caption(f"Last updated: {get_kst_now().strftime('%d일 %H시 %M분')} | 데이터 강제 동기화 모드 작동 중")
